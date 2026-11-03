@@ -22,7 +22,6 @@ const PUBLIC_MODE = !['127.0.0.1', 'localhost', '::1'].includes(HOST);
 const PUBLIC_HOST = String(process.env.PUBLIC_HOST || process.env.RENDER_EXTERNAL_HOSTNAME || '').toLowerCase();
 const ALLOWED_ORIGINS = new Set(String(process.env.ALLOWED_ORIGINS || '').split(',').map(x => x.trim().replace(/\/$/, '')).filter(Boolean));
 const normalizeTikTokId = value => String(value || '').trim().replace(/^.*tiktok\.com\/@?/i, '').replace(/^@/, '').replace(/\/.*$/, '').toLowerCase();
-const ALLOWED_TIKTOK_USERS = new Set(String(process.env.ALLOWED_TIKTOK_USERS || '').split(',').map(normalizeTikTokId).filter(Boolean));
 
 /* ------------------------------------------------------------------ state */
 const settings = {
@@ -40,6 +39,7 @@ const settings = {
 const viewers = new Map();           // id -> { id, name, skin, avatar, coins, joinedAt, lastAt, lastText, lastTextAt, demo }
 const startedAt = Date.now();
 let tiktok = null, tiktokState = { status: 'idle', uniqueId: '', error: '' };
+let lastPublicConnectAt = 0;
 const log = [];
 function addLog(s){ const line = `[${new Date().toLocaleTimeString('vi-VN')}] ${s}`; log.push(line); if (log.length > 300) log.shift(); broadcast({ t:'log', line }, 'control'); console.log(line); }
 
@@ -281,9 +281,14 @@ function onWebMessage(ws, message){
   if (message.t === 'connect'){
     const uniqueId = normalizeTikTokId(message.uniqueId);
     if (!uniqueId) return sendWebError(ws, 'Nhập ID TikTok hoặc liên kết LIVE hợp lệ.');
-    if (PUBLIC_MODE && !ALLOWED_TIKTOK_USERS.has(uniqueId)) return sendWebError(ws, 'ID TikTok này chưa được cho phép trên máy chủ.');
-    if (Date.now() - (ws.lastConnectAt || 0) < 3000) return sendWebError(ws, 'Vui lòng đợi một chút trước khi thử kết nối lại.');
-    ws.lastConnectAt = Date.now();
+    const now = Date.now();
+    if (now - (ws.lastConnectAt || 0) < 3000) return sendWebError(ws, 'Vui lòng đợi một chút trước khi thử kết nối lại.');
+    if (PUBLIC_MODE && now - lastPublicConnectAt < 10_000){
+      const seconds = Math.ceil((10_000 - (now - lastPublicConnectAt)) / 1000);
+      return sendWebError(ws, `Máy chủ vừa đổi kênh. Thử lại sau ${seconds} giây.`);
+    }
+    ws.lastConnectAt = now;
+    if (PUBLIC_MODE) lastPublicConnectAt = now;
     connectTikTok(uniqueId);
     return;
   }

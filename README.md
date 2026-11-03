@@ -14,12 +14,12 @@ Mã nguồn chia sẻ miễn phí (MIT). Có hai phần:
 Bản web dùng hai dịch vụ: Vercel phục vụ giao diện overlay xem-only, còn Render chạy WebSocket để kết nối TikTok LIVE và đồng bộ người xem/bình luận. Mở domain Vercel sẽ tự vào overlay; không cần nhập pháp danh.
 
 1. Tạo một **Render Blueprint** từ repository, branch `main`. `render.yaml` đã chọn gói **Free**, thư mục `live`, lệnh build `npm install` và lệnh chạy `npm start`.
-2. Thêm biến môi trường cho Render: `HOST=0.0.0.0`, `ALLOWED_ORIGINS=https://<domain-vercel-cua-ban>`, `ALLOWED_TIKTOK_USERS=<username-kenh-live>`. Không ghi `@` trong username. Nếu dùng domain riêng, thêm domain đó vào `ALLOWED_ORIGINS`, phân cách bằng dấu phẩy.
+2. `render.yaml` cấu hình `HOST=0.0.0.0` và `ALLOWED_ORIGINS=https://live-kappa-ruby.vercel.app`. Nếu dùng domain Vercel riêng, cập nhật `ALLOWED_ORIGINS` trước khi deploy.
 3. Sau khi Render tạo hostname, mở `live-config.js` và đặt `window.CHANH_DIEN_LIVE_SERVER` thành địa chỉ HTTPS của service, ví dụ `https://ten-service.onrender.com`.
 4. Trên Vercel, đặt **Root Directory** trống (thư mục gốc có `index.html`), **Framework Preset** là **Other**, **Build Command** để trống và **Output Directory** là `.`. Triển khai lại.
-5. Mở domain Vercel trên điện thoại, nhập ID TikTok nằm trong `ALLOWED_TIKTOK_USERS`, rồi bấm **Kết nối LIVE**. Kết nối thành công thì màn hình nhập ID tự ẩn và overlay chỉ hiển thị người xem/bình luận/quà LIVE; không cần nhập pháp danh.
+5. Mở domain Vercel trên điện thoại, nhập ID hoặc liên kết của bất kỳ kênh TikTok công khai đang LIVE, rồi bấm **Kết nối LIVE**. Kết nối thành công thì màn hình nhập ID tự ẩn và overlay chỉ hiển thị người xem/bình luận/quà LIVE; không cần nhập pháp danh.
 
-Trang phải dùng HTTPS để trình duyệt cho phép âm thanh. Mỗi backend chỉ giữ một kết nối LIVE tại một thời điểm; chỉ các ID trong `ALLOWED_TIKTOK_USERS` mới được phép kết nối. Render Free có thể ngủ sau 15 phút không có truy cập và cần khoảng một phút để khởi động lại; hãy chờ rồi kết nối lại. Nút quà trên trang web vẫn chỉ là mô phỏng, không xử lý thanh toán; quà thật từ TikTok được nhận từ sự kiện LIVE.
+Trang phải dùng HTTPS để trình duyệt cho phép âm thanh. Mỗi backend chỉ giữ một kết nối LIVE tại một thời điểm dùng chung cho tất cả người xem; đổi kênh sẽ chuyển LIVE của mọi người. Backend giới hạn yêu cầu đổi kênh công khai một lần mỗi 10 giây. Render Free có thể ngủ sau 15 phút không có truy cập và cần khoảng một phút để khởi động lại; hãy chờ rồi kết nối lại. Nút quà trên trang web vẫn chỉ là mô phỏng, không xử lý thanh toán; quà thật từ TikTok được nhận từ sự kiện LIVE.
 
 ## Chạy bộ LIVE trên máy phát
 
@@ -52,8 +52,8 @@ Nhạc nền mặc định tắt; có thể bật lại bằng ô **Nhạc nền
 Dự án được viết để ai tải về chạy cũng an toàn mặc định:
 
 - **Không dùng tài khoản TikTok.** Server chỉ đọc sự kiện công khai của phòng live theo username. Không cần, không hỏi và không lưu mật khẩu, cookie hay session. Không gửi tin nhắn thay bạn.
-- **Local mặc định.** Server lắng nghe `127.0.0.1`. Chỉ cấu hình `HOST=0.0.0.0` khi triển khai backend công khai và đặt đầy đủ allowlist.
-- **Giới hạn backend public.** Public mode chỉ phục vụ `/health` và WebSocket, kiểm tra `Host`/`Origin`, chỉ nhận ID có trong `ALLOWED_TIKTOK_USERS`, và chỉ role web với các lệnh kết nối, vào/rời, bình luận mới được chấp nhận. Bảng điều khiển nội bộ không được mở trên public mode.
+- **Local mặc định.** Server lắng nghe `127.0.0.1`. Chỉ cấu hình `HOST=0.0.0.0` khi triển khai backend công khai.
+- **Giới hạn backend public.** Public mode chỉ phục vụ `/health`, file TTS và WebSocket; kiểm tra `Host`/`Origin`, chỉ role web với các lệnh kết nối, vào/rời, bình luận được chấp nhận. Mọi ID TikTok công khai có thể được yêu cầu, nhưng chỉ một kênh hoạt động cho toàn site và có cooldown đổi kênh. Bảng điều khiển nội bộ không được mở trên public mode.
 - **File tĩnh có danh sách trắng.** Chỉ phục vụ `/assets` và `/live`. Chặn file ẩn (`.git`, `.env`), `node_modules`, mã server, `package.json` và mọi đường dẫn `../`.
 - **Không tin dữ liệu vào.** Tên người xem, bình luận và tên quà đều bị cắt độ dài. Cài đặt chỉ nhận đúng khóa, đúng kiểu, trong giới hạn. Văn bản đưa vào giọng đọc được escape XML. Mọi chữ trên màn hình vẽ bằng `textContent` hoặc canvas, không chèn HTML, nên bình luận chứa mã độc chỉ hiện ra như chữ thường.
 - **Chống spam.** Hàng đợi giọng đọc tối đa 15 câu. Bình luận thường không đọc thành tiếng.

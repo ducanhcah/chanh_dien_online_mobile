@@ -12,5 +12,3 @@ services:
         value: 0.0.0.0
       - key: ALLOWED_ORIGINS
         value: https://live-kappa-ruby.vercel.app
-      - key: ALLOWED_TIKTOK_USERS
-        value: phatpt_diamond,chuaonline2910

@@ -21,7 +21,11 @@ const HOST = process.env.HOST || '127.0.0.1';
 const PUBLIC_MODE = !['127.0.0.1', 'localhost', '::1'].includes(HOST);
 const PUBLIC_HOST = String(process.env.PUBLIC_HOST || process.env.RENDER_EXTERNAL_HOSTNAME || '').toLowerCase();
 const ALLOWED_ORIGINS = new Set(String(process.env.ALLOWED_ORIGINS || '').split(',').map(x => x.trim().replace(/\/$/, '')).filter(Boolean));
-const normalizeTikTokId = value => String(value || '').trim().replace(/^.*tiktok\.com\/@?/i, '').replace(/^@/, '').replace(/\/.*$/, '').toLowerCase();
+const normalizeTikTokId = value => {
+  const raw=String(value||'').trim();
+  const fromUrl=raw.match(/tiktok\.com\/@?([^/?#]+)/i)?.[1];
+  return String(fromUrl||raw).replace(/^@/,'').split(/[/?#]/,1)[0].toLowerCase();
+};
 
 /* ------------------------------------------------------------------ state */
 const settings = {
@@ -40,6 +44,9 @@ const viewers = new Map();           // id -> { id, name, skin, avatar, coins, j
 const startedAt = Date.now();
 let tiktok = null, tiktokState = { status: 'idle', uniqueId: '', error: '' };
 let lastPublicConnectAt = 0;
+const publicRooms = new Map();
+const MAX_PUBLIC_CHANNELS = Math.max(1, Math.min(20, Number(process.env.MAX_PUBLIC_CHANNELS) || 5));
+const PUBLIC_ROOM_IDLE_TTL_MS = 30_000;
 const log = [];
 function addLog(s){ const line = `[${new Date().toLocaleTimeString('vi-VN')}] ${s}`; log.push(line); if (log.length > 300) log.shift(); broadcast({ t:'log', line }, 'control'); console.log(line); }
 
@@ -110,6 +117,50 @@ function pickPrayer(){
 }
 const spoken = s => String(s).replace(/[_@.]+/g, ' ').replace(/[^\p{L}\p{N}\s]/gu, '').trim() || 'ẩn danh';
 
+function publicCapacity(room){
+  if (settings.seatMode !== 'auto') return +settings.seatMode;
+  return CAPS.find(c => room.viewers.size <= c) || 100;
+}
+function sendToPublicRoom(room, message){
+  const data = JSON.stringify(message);
+  for (const ws of room.clients) if (ws.readyState === 1) ws.send(data);
+}
+function publicSnapshot(room){
+  return { t:'state', settings, viewers:[...room.viewers.values()].map(pub), cap:publicCapacity(room), startedAt:room.startedAt, tiktok:room.tiktokState };
+}
+function publicSeat(room, id, name, opts={}){
+  let v=room.viewers.get(id);
+  if(v){ v.lastAt=Date.now(); if(opts.avatar) v.avatar=opts.avatar; return {v,isNew:false}; }
+  if(room.viewers.size>=100){
+    const quiet=[...room.viewers.values()].filter(x=>x.coins===0).sort((a,b)=>a.lastAt-b.lastAt)[0];
+    if(!quiet) return {v:null,isNew:false};
+    room.viewers.delete(quiet.id); sendToPublicRoom(room,{t:'leave',id:quiet.id,cap:publicCapacity(room)});
+  }
+  v={id,name:(name||id).slice(0,18),skin:opts.skin||DEFAULT_SKINS[room.viewers.size%DEFAULT_SKINS.length],avatar:opts.avatar||'',coins:0,joinedAt:Date.now(),lastAt:Date.now(),lastText:'',lastTextAt:0,demo:false};
+  room.viewers.set(id,v); sendToPublicRoom(room,{t:'join',v:pub(v),cap:publicCapacity(room)});
+  return {v,isNew:true};
+}
+function publicChat(room,id,name,text,avatarUrl){
+  text=String(text||'').slice(0,120);
+  const want=skinFromText(text), {v,isNew}=publicSeat(room,id,name,{avatar:avatarUrl,skin:want||undefined});
+  if(!v) return;
+  if(!isNew&&want&&want!==v.skin){v.skin=want;sendToPublicRoom(room,{t:'skin',id,skin:want});}
+  v.lastText=text;v.lastTextAt=Date.now();
+  sendToPublicRoom(room,{t:'chat',id,name:v.name,text});
+}
+function publicGift(room,id,name,giftName,count,diamonds,avatarUrl){
+  giftName=String(giftName||'quà').slice(0,30);count=Math.max(1,Math.min(9999,+count||1));
+  const {v}=publicSeat(room,id,name,{avatar:avatarUrl});if(!v)return;
+  const coins=Math.max(1,(diamonds||1)*(count||1));v.coins+=coins;
+  const prayer=v.lastText&&Date.now()-v.lastTextAt<90_000&&v.lastText.length>6?v.lastText:pickPrayer();
+  const tier=coins>=99?3:coins>=10?2:1;
+  sendToPublicRoom(room,{t:'gift',id,name:v.name,giftName,count,coins,total:v.coins,tier,prayer});
+  if(settings.gifts.readAll||coins>=settings.gifts.minDiamonds){
+    const line=`Nam mô A Di Đà Phật. Phật tử ${spoken(v.name)} thành tâm dâng ${giftName}${count>1?', '+count+' lần':''}. ${prayer}.`;
+    say(line,{tag:'gift',id,publicRoom:room});
+  }
+}
+
 /* ------------------------------------------------------------------ TTS */
 const ttsQueue = []; let ttsBusy = false, ttsSeq = 0;
 function esc(s){ return String(s).replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c])); }
@@ -159,7 +210,10 @@ async function pumpTTS(){
     const file = `tts_${Date.now()}_${++ttsSeq}.mp3`;
     fs.writeFileSync(path.join(TTS_DIR, file), audio);
     const url = PUBLIC_MODE && PUBLIC_HOST ? `https://${PUBLIC_HOST}/live/tts/${file}` : `/live/tts/${file}`;
-    broadcast({ t:'tts', url, text, ...meta });
+    if(meta.publicRoom){
+      const { publicRoom, ...publicMeta } = meta;
+      sendToPublicRoom(publicRoom,{t:'tts',url,text,...publicMeta});
+    }else broadcast({ t:'tts', url, text, ...meta });
     const old = fs.readdirSync(TTS_DIR).sort(); while (old.length > 40) { try { fs.unlinkSync(path.join(TTS_DIR, old.shift())); } catch {} }
   } catch (e) { addLog('TTS lỗi sau khi thử lại: ' + (e?.message || e)); }
   ttsBusy = false; setTimeout(pumpTTS, 50);
@@ -231,6 +285,85 @@ async function connectTikTok(uniqueId){
 }
 async function disconnectTikTok(){ if (tiktok){ try { await tiktok.disconnect(); } catch {} tiktok = null; } tiktokState = { status:'idle', uniqueId:'', error:'' }; broadcast({ t:'tiktok', ...tiktokState }); }
 
+function sendPublicSnapshot(ws, room){
+  if(ws.readyState===1) ws.send(JSON.stringify(publicSnapshot(room)));
+}
+function detachPublicClient(ws){
+  const room=ws.publicRoom;
+  if(!room) return;
+  ws.publicRoom=null;room.clients.delete(ws);
+  if(room.clients.size) return;
+  room.idleTimer=setTimeout(()=>{
+    if(room.clients.size||publicRooms.get(room.uniqueId)!==room) return;
+    publicRooms.delete(room.uniqueId);
+    if(room.conn){ try{room.conn.disconnect();}catch{} room.conn=null; }
+  },PUBLIC_ROOM_IDLE_TTL_MS);
+}
+function attachPublicClient(ws, rawId){
+  const uniqueId=normalizeTikTokId(rawId);
+  if(!/^[a-z0-9._]{2,30}$/.test(uniqueId)) return sendWebError(ws,'ID TikTok không hợp lệ.');
+  const now=Date.now();
+  let room=publicRooms.get(uniqueId);
+  let shouldStart=false;
+  if(!room){
+    const releasesOldRoom=ws.publicRoom&&ws.publicRoom.clients.size===1?1:0;
+    if(publicRooms.size-releasesOldRoom>=MAX_PUBLIC_CHANNELS) return sendWebError(ws,`Máy chủ đã đủ ${MAX_PUBLIC_CHANNELS} kênh LIVE đồng thời.`);
+    if(PUBLIC_MODE&&now-lastPublicConnectAt<10_000){
+      const seconds=Math.ceil((10_000-(now-lastPublicConnectAt))/1000);
+      return sendWebError(ws,`Máy chủ vừa mở kênh khác. Thử lại sau ${seconds} giây.`);
+    }
+    room={uniqueId,clients:new Set(),viewers:new Map(),startedAt:now,tiktokState:{status:'connecting',uniqueId,error:''},conn:null,connecting:false,idleTimer:null};
+    publicRooms.set(uniqueId,room);shouldStart=true;
+  }else if(['error','disconnected'].includes(room.tiktokState.status)&&!room.connecting){
+    if(PUBLIC_MODE&&now-lastPublicConnectAt<10_000){
+      const seconds=Math.ceil((10_000-(now-lastPublicConnectAt))/1000);
+      return sendWebError(ws,`Máy chủ vừa thử kết nối. Thử lại sau ${seconds} giây.`);
+    }
+    room.tiktokState={status:'connecting',uniqueId,error:''};shouldStart=true;
+  }
+  if(room.idleTimer){clearTimeout(room.idleTimer);room.idleTimer=null;}
+  if(ws.publicRoom!==room){detachPublicClient(ws);room.clients.add(ws);ws.publicRoom=room;}
+  sendPublicSnapshot(ws,room);
+  if(shouldStart){lastPublicConnectAt=now;startPublicTikTok(room);}
+}
+async function startPublicTikTok(room){
+  if(room.connecting) return;
+  room.connecting=true;
+  sendToPublicRoom(room,{t:'tiktok',...room.tiktokState});
+  try{
+    TikTokLib ||= await import('tiktok-live-connector');
+    if(publicRooms.get(room.uniqueId)!==room) return;
+    const {TikTokLiveConnection,WebcastEvent,ControlEvent}=TikTokLib;
+    const conn=new TikTokLiveConnection(room.uniqueId,{enableExtendedGiftInfo:false,processInitialData:false});
+    room.conn=conn;
+    const userId=u=>String(u?.uniqueId||u?.userId||u?.id||u?.displayId||'').trim();
+    const avatarUrl=u=>u?.profilePicture?.url?.[0]||u?.profilePicture?.urlList?.[0]||u?.avatarThumb?.urlList?.[0]||u?.avatarThumb?.url?.[0]||u?.avatarMedium?.urlList?.[0]||u?.avatarLarge?.urlList?.[0]||'';
+    const displayName=u=>u?.nickname||u?.uniqueId||u?.displayId||'ẩn danh';
+    conn.on(WebcastEvent.CHAT,d=>{const id=userId(d.user);if(id)publicChat(room,id,displayName(d.user),d.comment??d.content,avatarUrl(d.user));});
+    conn.on(WebcastEvent.GIFT,d=>{
+      const id=userId(d.user);if(!id)return;
+      const type=d.giftDetails?.giftType??d.gift?.type??d.extendedGiftInfo?.type;if(type===1&&!d.repeatEnd)return;
+      const giftName=d.giftDetails?.giftName||d.gift?.name||d.extendedGiftInfo?.name||'quà';
+      const diamonds=d.giftDetails?.diamondCount??d.gift?.diamondCount??d.extendedGiftInfo?.diamond_count??1;
+      const count=d.repeatCount||d.comboCount||d.groupCount||1;
+      publicGift(room,id,displayName(d.user),giftName,count,diamonds,avatarUrl(d.user));
+    });
+    conn.on(WebcastEvent.MEMBER,d=>{const id=userId(d.user);if(settings.joinOnEnter&&id)publicSeat(room,id,displayName(d.user),{avatar:avatarUrl(d.user)});});
+    conn.on(WebcastEvent.LIKE,d=>{const id=userId(d.user);if(id)sendToPublicRoom(room,{t:'like',id,n:d.likeCount||d.count||1});});
+    conn.on(ControlEvent.DISCONNECTED,()=>{room.tiktokState={...room.tiktokState,status:'disconnected'};sendToPublicRoom(room,{t:'tiktok',...room.tiktokState});});
+    conn.on(ControlEvent.ERROR,e=>console.warn(`TikTok @${room.uniqueId}:`,e?.info||e?.message||e));
+    const result=await conn.connect();
+    if(publicRooms.get(room.uniqueId)!==room){try{await conn.disconnect();}catch{}return;}
+    room.tiktokState={status:'connected',uniqueId:room.uniqueId,error:'',roomId:result?.roomId||''};
+  }catch(e){
+    room.tiktokState={status:'error',uniqueId:room.uniqueId,error:String(e?.message||e)};
+    if(room.conn){try{await room.conn.disconnect();}catch{}room.conn=null;}
+  }finally{
+    room.connecting=false;
+    if(publicRooms.get(room.uniqueId)===room)sendToPublicRoom(room,{t:'tiktok',...room.tiktokState});
+  }
+}
+
 /* ------------------------------------------------------------- test data */
 const DEMO_NAMES = ['Diệu Hạnh','Minh Tâm','Thiện Đức','Huệ An','Tịnh Nhã','Quảng Trí','Chơn Như','Pháp Hỷ','Nguyên Thanh','Tâm Đăng','Diệu Liên','Trí Hải','Phước Lộc','Hạnh Nguyện','Như Ý','Bảo Châu','Thanh Lương','Từ Tâm','An Lạc','Giác Hoa','Tuệ Minh','Liên Hương','Thu Hà','Ngọc Lan','Đức Anh','Hải Đăng','Mai Anh','Phương Thảo','Trung Kiên','Quang Huy','Bảo Ngọc','Diệu Linh'];
 function fillDemo(n){
@@ -278,6 +411,10 @@ function removeWebViewer(ws){
 }
 function onWebMessage(ws, message){
   if (!message || typeof message !== 'object') return;
+  if (PUBLIC_MODE){
+    if(message.t==='connect') attachPublicClient(ws,message.uniqueId);
+    return;
+  }
   if (message.t === 'connect'){
     const uniqueId = normalizeTikTokId(message.uniqueId);
     if (!uniqueId) return sendWebError(ws, 'Nhập ID TikTok hoặc liên kết LIVE hợp lệ.');
@@ -355,8 +492,8 @@ function setBots(on, n, pace){
 
 /* -------------------------------------------------------------- server */
 // Security notes (this file is meant to be shared publicly):
-//  • defaults to 127.0.0.1; public mode requires explicit host, origin and TikTok username allowlists
-//  • public mode serves only health checks and accepts restricted web-role WebSocket commands
+//  • defaults to 127.0.0.1; public mode requires an explicit host/origin allowlist and caps live channels
+//  • public mode serves only health/TTS files and accepts restricted web-role WebSocket commands
 //  • local mode checks Host/Origin; public mode requires the configured site Origin
 //  • static files: only /assets and /live, no dot-files, no node_modules, no server source, no path escapes
 //  • no TikTok password, cookie or session is ever used or stored; only public room events are read
@@ -411,7 +548,8 @@ function broadcast(msg, only){ const s = JSON.stringify(msg); for (const c of ws
 wss.on('connection', (ws, req) => {
   const requestedRole = new URL(req.url, 'http://x').searchParams.get('role');
   ws.role = requestedRole === 'web' ? 'web' : requestedRole === 'control' && !PUBLIC_MODE ? 'control' : 'overlay';
-  ws.send(JSON.stringify(snapshot()));
+  if(ws.role==='web'&&PUBLIC_MODE) ws.send(JSON.stringify({t:'webReady'}));
+  else ws.send(JSON.stringify(snapshot()));
   if (ws.role === 'control') ws.send(JSON.stringify({ t:'logs', lines: log }));
   ws.on('message', buf => {
     try {
@@ -420,6 +558,6 @@ wss.on('connection', (ws, req) => {
       else if (ws.role === 'web') onWebMessage(ws, m);
     } catch (e) { if (ws.role === 'control') addLog('Lệnh lỗi: ' + e.message); }
   });
-  ws.on('close', () => { if (ws.role === 'web') removeWebViewer(ws); });
+  ws.on('close', () => { if (ws.role === 'web'&&PUBLIC_MODE) detachPublicClient(ws); else if(ws.role==='web') removeWebViewer(ws); });
 });
 server.listen(PORT, HOST, () => addLog(`Server chạy tại http://localhost:${PORT}  ·  Bảng điều khiển: http://localhost:${PORT}/live/control.html  ·  Overlay: http://localhost:${PORT}/live/overlay.html`));

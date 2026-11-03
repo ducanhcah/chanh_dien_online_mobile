@@ -12,3 +12,5 @@ services:
         value: 0.0.0.0
       - key: ALLOWED_ORIGINS
         value: https://live-kappa-ruby.vercel.app
+      - key: MAX_PUBLIC_CHANNELS
+        value: 5

@@ -29,6 +29,8 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:var(-
 /* pills */
 #pills{top:244px;left:0;right:0;display:flex;justify-content:center;gap:26px}
 .pill{background:var(--panel);border:2px solid var(--line);border-radius:999px;padding:12px 28px;font-size:34px;font-weight:600;display:flex;align-items:center;gap:14px;font-variant-numeric:tabular-nums}
+#musicToggle{min-height:120px;padding:12px 24px;color:var(--fg);font-family:var(--body);cursor:pointer}
+#musicToggle[aria-pressed="true"]{border-color:var(--gold2);color:var(--gold2)}
 .pill small{font-size:20px;font-weight:500;color:var(--muted);line-height:1.05}
 .dot{width:18px;height:18px;border-radius:50%;background:#46d36b;box-shadow:0 0 12px #46d36b}
 /* side cards */
@@ -77,6 +79,7 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:var(-
   <div id="plaque" class="ui"><div id="title">Chánh Điện Tịnh Tâm</div><div id="subtitle">Nam Mô A Di Đà Phật</div></div>
   <div id="pills" class="ui">
     <div class="pill"><span class="dot"></span><span id="count">0/24</span><small>đang<br>thiền</small></div>
+    <button class="pill" id="musicToggle" type="button" aria-pressed="false" title="Bật hoặc tắt nhạc nền">♫ Nhạc nền: tắt</button>
     <div class="pill">⏱ <span id="timer">00:00:00</span></div>
   </div>
   <div id="guide" class="card ui">
@@ -184,7 +187,9 @@ function showChant(text){ document.getElementById('chantText').textContent=text;
 
 /* ======================= audio ======================= */
 let AC=null, master=null, musicGain=null, sfx=null, settings={ music:false, mo:true, moBpm:52 };
+const musicToggle=document.getElementById('musicToggle');
 const TRACKS=['/assets/music/music1.mp3','/assets/music/music2.mp3']; let trackIdx=Math.floor(Math.random()*TRACKS.length), musicEl=null;
+function syncMusicToggle(){ musicToggle.textContent=settings.music?'♫ Nhạc nền: bật':'♫ Nhạc nền: tắt'; musicToggle.setAttribute('aria-pressed',String(settings.music)); }
 function startAudio(){
   if (AC){ if (AC.state==='suspended') AC.resume().catch(()=>{}); return; }
   AC = new (window.AudioContext||window.webkitAudioContext)();
@@ -205,9 +210,13 @@ function nextTrack(){
 function duck(on){ if(!musicGain) return; const t=AC.currentTime, target = !settings.music ? 0 : on ? .14 : .5; musicGain.gain.cancelScheduledValues(t); musicGain.gain.setValueAtTime(musicGain.gain.value,t); musicGain.gain.linearRampToValueAtTime(target,t+.5); }
 function applyMusic(){
   if (musicGain){ const t=AC.currentTime; musicGain.gain.cancelScheduledValues(t); musicGain.gain.setTargetAtTime(settings.music?.5:0,t,.08); }
-  if (settings.music){ if (AC && !musicEl) nextTrack(); }
+  if (settings.music){ if (AC && !musicEl) nextTrack(); else musicEl?.play().catch(()=>{}); }
   else musicEl?.pause();
 }
+musicToggle.addEventListener('click',()=>{
+  settings.music=!settings.music; syncMusicToggle();
+  if(settings.music&&!AC) startAudio(); else applyMusic();
+});
 let haloPulse=0;
 function bell(big){
   if(!AC) return; const t=AC.currentTime, k=big?1.7:1;
@@ -226,7 +235,7 @@ const ttsQ=[]; let ttsPlaying=false;
 function queueTTS(url, onStart){ ttsQ.push({url,onStart}); playTTS(); }
 function playTTS(){
   if (ttsPlaying || !ttsQ.length || !AC) return; ttsPlaying=true;
-  const {url,onStart}=ttsQ.shift(); const el=new Audio(url); const src=AC.createMediaElementSource(el); const g=AC.createGain(); g.gain.value=1.25; src.connect(g); g.connect(master);
+  const {url,onStart}=ttsQ.shift(); const el=new Audio(); el.crossOrigin='anonymous'; el.src=url; const src=AC.createMediaElementSource(el); const g=AC.createGain(); g.gain.value=1.25; src.connect(g); g.connect(master);
   el.onplay=()=>{ duck(true); onStart&&onStart(); }; el.onended=el.onerror=()=>{ duck(false); ttsPlaying=false; setTimeout(playTTS,350); };
   el.play().catch(()=>{ ttsPlaying=false; });
 }
@@ -313,7 +322,7 @@ function connect(){
 function applySettings(){
   document.getElementById('title').textContent=settings.title||'Chánh Điện Tịnh Tâm';
   document.getElementById('subtitle').textContent=settings.subtitle||'Nam Mô A Di Đà Phật';
-  applyMusic(); duck(false); scheduleMo();
+  syncMusicToggle(); applyMusic(); duck(false); scheduleMo();
 }
 
 /* ======================= render ======================= */

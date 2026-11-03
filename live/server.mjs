@@ -533,8 +533,13 @@ const server = http.createServer((req, res) => {
   if (!file) { res.writeHead(404).end('not found'); return; }
   fs.stat(file, (err, st) => {
     if (err || !st.isFile()) { res.writeHead(404).end('not found'); return; }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
-      'Cache-Control': p.startsWith('/live/tts/') ? 'no-store' : 'no-cache', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
+    const headers={ 'Content-Type':MIME[path.extname(file).toLowerCase()]||'application/octet-stream',
+      'Cache-Control':p.startsWith('/live/tts/')?'no-store':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer' };
+    if(PUBLIC_MODE&&p.startsWith('/live/tts/')&&ALLOWED_ORIGINS.has(String(req.headers.origin||''))){
+      headers['Access-Control-Allow-Origin']=req.headers.origin;
+      headers['Vary']='Origin';
+    }
+    res.writeHead(200,headers);
     if (req.method === 'HEAD') { res.end(); return; }
     fs.createReadStream(file).pipe(res);
   });

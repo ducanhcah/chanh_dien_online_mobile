@@ -6,18 +6,18 @@ Mã nguồn chia sẻ miễn phí (MIT). Có hai phần:
 
 | Thư mục | Là gì |
 |---|---|
-| `index.html`, `assets/`, `live-config.js` | Giao diện web cho điện thoại, triển khai trên Vercel |
+| `live/overlay.html`, `assets/`, `live-config.js`, `vercel.json` | Giao diện xem-only kiểu overlay, triển khai trên Vercel |
 | `live/` | Server Node cho WebSocket TikTok LIVE, overlay và bảng điều khiển |
 
 ## Đưa bản web lên điện thoại
 
-Bản web dùng hai dịch vụ: Vercel phục vụ giao diện tĩnh, còn Render chạy WebSocket để kết nối TikTok LIVE và đồng bộ người vào chánh điện.
+Bản web dùng hai dịch vụ: Vercel phục vụ giao diện overlay xem-only, còn Render chạy WebSocket để kết nối TikTok LIVE và đồng bộ người xem/bình luận. Mở domain Vercel sẽ tự vào overlay; không cần nhập pháp danh.
 
 1. Tạo một **Render Blueprint** từ repository, branch `main`. `render.yaml` đã chọn gói **Free**, thư mục `live`, lệnh build `npm install` và lệnh chạy `npm start`.
 2. Thêm biến môi trường cho Render: `HOST=0.0.0.0`, `ALLOWED_ORIGINS=https://<domain-vercel-cua-ban>`, `ALLOWED_TIKTOK_USERS=<username-kenh-live>`. Không ghi `@` trong username. Nếu dùng domain riêng, thêm domain đó vào `ALLOWED_ORIGINS`, phân cách bằng dấu phẩy.
 3. Sau khi Render tạo hostname, mở `live-config.js` và đặt `window.CHANH_DIEN_LIVE_SERVER` thành địa chỉ HTTPS của service, ví dụ `https://ten-service.onrender.com`.
 4. Trên Vercel, đặt **Root Directory** trống (thư mục gốc có `index.html`), **Framework Preset** là **Other**, **Build Command** để trống và **Output Directory** là `.`. Triển khai lại.
-5. Mở domain Vercel trên điện thoại, nhập ID TikTok LIVE nằm trong allowlist Render, bấm **Kết nối**, rồi nhập pháp danh để vào.
+5. Mở domain Vercel trên điện thoại. Overlay tự kết nối ID đã cấu hình trong `live-config.js` và chỉ hiển thị người xem/bình luận/quà LIVE.
 
 Trang phải dùng HTTPS để trình duyệt cho phép âm thanh. Mỗi backend chỉ giữ một kết nối LIVE tại một thời điểm; chỉ các ID trong `ALLOWED_TIKTOK_USERS` mới được phép kết nối. Render Free có thể ngủ sau 15 phút không có truy cập và cần khoảng một phút để khởi động lại; hãy chờ rồi kết nối lại. Nút quà trên trang web vẫn chỉ là mô phỏng, không xử lý thanh toán; quà thật từ TikTok được nhận từ sự kiện LIVE.
 

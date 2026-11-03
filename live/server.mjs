@@ -158,7 +158,8 @@ async function pumpTTS(){
     if (!audio) throw lastError || new Error('Không tạo được giọng đọc');
     const file = `tts_${Date.now()}_${++ttsSeq}.mp3`;
     fs.writeFileSync(path.join(TTS_DIR, file), audio);
-    broadcast({ t:'tts', url: `/live/tts/${file}`, text, ...meta });
+    const url = PUBLIC_MODE && PUBLIC_HOST ? `https://${PUBLIC_HOST}/live/tts/${file}` : `/live/tts/${file}`;
+    broadcast({ t:'tts', url, text, ...meta });
     const old = fs.readdirSync(TTS_DIR).sort(); while (old.length > 40) { try { fs.unlinkSync(path.join(TTS_DIR, old.shift())); } catch {} }
   } catch (e) { addLog('TTS lỗi sau khi thử lại: ' + (e?.message || e)); }
   ttsBusy = false; setTimeout(pumpTTS, 50);
@@ -371,6 +372,7 @@ function okOrigin(value){
 }
 const SEP = path.sep;
 function resolveStatic(urlPath){
+  if (urlPath === '/live-config.js') return path.join(ROOT, 'live-config.js');
   let p = urlPath === '/' ? '/live/control.html' : urlPath;
   if (!/^\/(assets|live)\//.test(p)) return null;
   if (p.split('/').some(seg => seg.startsWith('.') || seg === 'node_modules')) return null;
@@ -384,7 +386,7 @@ const server = http.createServer((req, res) => {
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405).end(); return; }
   let p; try { p = decodeURIComponent(new URL(req.url, 'http://x').pathname); } catch { res.writeHead(400).end(); return; }
   if (p === '/health') { res.writeHead(200, { 'Content-Type':'text/plain; charset=utf-8' }).end('ok'); return; }
-  if (PUBLIC_MODE) { res.writeHead(404).end('not found'); return; }
+  if (PUBLIC_MODE && !/^\/live\/tts\/tts_\d+_\d+\.mp3$/.test(p)) { res.writeHead(404).end('not found'); return; }
   const file = resolveStatic(p);
   if (!file) { res.writeHead(404).end('not found'); return; }
   fs.stat(file, (err, st) => {

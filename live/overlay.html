@@ -29,8 +29,15 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:var(-
 /* pills */
 #pills{top:244px;left:0;right:0;display:flex;justify-content:center;gap:26px}
 .pill{background:var(--panel);border:2px solid var(--line);border-radius:999px;padding:12px 28px;font-size:34px;font-weight:600;display:flex;align-items:center;gap:14px;font-variant-numeric:tabular-nums}
-#musicToggle{min-height:120px;padding:12px 24px;color:var(--fg);font-family:var(--body);cursor:pointer}
+#audioControl{right:22px;bottom:52px;display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--panel);border:2px solid var(--line);border-radius:999px;backdrop-filter:blur(6px)}
+#musicToggle{width:112px;height:112px;display:grid;place-items:center;padding:0;color:var(--fg);font:600 52px var(--body);background:transparent;border:2px solid var(--line);border-radius:50%;cursor:pointer;touch-action:manipulation}
 #musicToggle[aria-pressed="true"]{border-color:var(--gold2);color:var(--gold2)}
+#musicVolume{width:190px;height:96px;accent-color:var(--gold2);cursor:pointer;touch-action:pan-x}
+#musicVolumeValue{min-width:58px;color:var(--muted);font-size:30px;font-variant-numeric:tabular-nums;text-align:right}
+#fullscreenToggle{width:112px;height:112px;display:grid;place-items:center;padding:0;color:var(--fg);font:600 52px var(--body);background:transparent;border:2px solid var(--line);border-radius:50%;cursor:pointer;touch-action:manipulation}
+#fullscreenToggle:hover{border-color:var(--gold2);color:var(--gold2)}
+#audioNotice{right:22px;bottom:194px;max-width:680px;padding:12px 18px;background:var(--panel);border:2px solid var(--line);border-radius:14px;color:var(--fg);font-size:24px;opacity:0;pointer-events:none;transition:opacity .2s}
+#audioNotice.show{opacity:1}
 .pill small{font-size:20px;font-weight:500;color:var(--muted);line-height:1.05}
 .dot{width:18px;height:18px;border-radius:50%;background:#46d36b;box-shadow:0 0 12px #46d36b}
 /* side cards */
@@ -79,7 +86,6 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:var(-
   <div id="plaque" class="ui"><div id="title">Chánh Điện Tịnh Tâm</div><div id="subtitle">Nam Mô A Di Đà Phật</div></div>
   <div id="pills" class="ui">
     <div class="pill"><span class="dot"></span><span id="count">0/24</span><small>đang<br>thiền</small></div>
-    <button class="pill" id="musicToggle" type="button" aria-pressed="false" title="Bật hoặc tắt nhạc nền">♫ Nhạc nền: tắt</button>
     <div class="pill">⏱ <span id="timer">00:00:00</span></div>
   </div>
   <div id="guide" class="card ui">
@@ -90,6 +96,13 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:var(-
   <div id="merit" class="card ui"><h3>✦ Công Đức ✦</h3><ol id="meritList"><li class="empty">Chưa có</li></ol></div>
   <div id="chant" class="ui"><h4>✦ TỤNG KINH ĐỊNH KỲ ✦</h4><p id="chantText"></p></div>
   <div id="gift" class="ui"><div class="who" id="giftWho"></div><div class="what" id="giftWhat"></div><div class="pray" id="giftPray"></div></div>
+  <div id="audioControl" class="ui" aria-label="Điều khiển nhạc nền">
+    <button id="musicToggle" type="button" aria-pressed="false" aria-label="Bật nhạc nền" title="Bật hoặc tắt nhạc nền">♫</button>
+    <input id="musicVolume" type="range" min="0" max="100" step="5" value="50" aria-label="Âm lượng nhạc nền">
+    <span id="musicVolumeValue">50%</span>
+    <button id="fullscreenToggle" type="button" aria-label="Bật toàn màn hình" title="Bật hoặc thoát toàn màn hình">⛶</button>
+  </div>
+  <div id="audioNotice" class="ui" role="status" aria-live="polite"></div>
   <div id="conn">đang kết nối…</div>
   <div id="connectGate">
     <div id="connectPanel">
@@ -188,13 +201,21 @@ function showChant(text){ document.getElementById('chantText').textContent=text;
 /* ======================= audio ======================= */
 let AC=null, master=null, musicGain=null, sfx=null, settings={ music:false, mo:true, moBpm:52 };
 const musicToggle=document.getElementById('musicToggle');
+const musicVolumeInput=document.getElementById('musicVolume'), musicVolumeValue=document.getElementById('musicVolumeValue');
+const fullscreenToggle=document.getElementById('fullscreenToggle'), audioNotice=document.getElementById('audioNotice');
+let musicVolume=.5;
 const TRACKS=['/assets/music/music1.mp3','/assets/music/music2.mp3']; let trackIdx=Math.floor(Math.random()*TRACKS.length), musicEl=null;
-function syncMusicToggle(){ musicToggle.textContent=settings.music?'♫ Nhạc nền: bật':'♫ Nhạc nền: tắt'; musicToggle.setAttribute('aria-pressed',String(settings.music)); }
+function syncMusicToggle(){
+  musicToggle.setAttribute('aria-pressed',String(settings.music));
+  musicToggle.setAttribute('aria-label',settings.music?'Tắt nhạc nền':'Bật nhạc nền');
+  musicToggle.title=settings.music?'Tắt nhạc nền':'Bật nhạc nền';
+  musicVolumeInput.value=Math.round(musicVolume*100); musicVolumeValue.textContent=`${Math.round(musicVolume*100)}%`;
+}
 function startAudio(){
   if (AC){ if (AC.state==='suspended') AC.resume().catch(()=>{}); return; }
   AC = new (window.AudioContext||window.webkitAudioContext)();
   master = AC.createGain(); master.gain.value=.9; master.connect(AC.destination);
-  musicGain = AC.createGain(); musicGain.gain.value=settings.music?.5:0; musicGain.connect(master);
+  musicGain = AC.createGain(); musicGain.gain.value=settings.music?musicVolume:0; musicGain.connect(master);
   sfx = AC.createGain(); sfx.gain.value=1; sfx.connect(master);
   if (settings.music) nextTrack();
   scheduleMo(); bell(); playTTS();
@@ -207,16 +228,48 @@ function nextTrack(){
   musicEl = new Audio(TRACKS[trackIdx++ % TRACKS.length]); const src=AC.createMediaElementSource(musicEl); src.connect(musicGain);
   musicEl.onended = nextTrack; musicEl.play().catch(()=>{});
 }
-function duck(on){ if(!musicGain) return; const t=AC.currentTime, target = !settings.music ? 0 : on ? .14 : .5; musicGain.gain.cancelScheduledValues(t); musicGain.gain.setValueAtTime(musicGain.gain.value,t); musicGain.gain.linearRampToValueAtTime(target,t+.5); }
+function duck(on){ if(!musicGain) return; const t=AC.currentTime, target = !settings.music ? 0 : musicVolume*(on?.28:1); musicGain.gain.cancelScheduledValues(t); musicGain.gain.setValueAtTime(musicGain.gain.value,t); musicGain.gain.linearRampToValueAtTime(target,t+.5); }
 function applyMusic(){
-  if (musicGain){ const t=AC.currentTime; musicGain.gain.cancelScheduledValues(t); musicGain.gain.setTargetAtTime(settings.music?.5:0,t,.08); }
+  if (musicGain){ const t=AC.currentTime; musicGain.gain.cancelScheduledValues(t); musicGain.gain.setTargetAtTime(settings.music?musicVolume:0,t,.08); }
   if (settings.music){ if (AC && !musicEl) nextTrack(); else musicEl?.play().catch(()=>{}); }
   else musicEl?.pause();
 }
 musicToggle.addEventListener('click',()=>{
-  settings.music=!settings.music; syncMusicToggle();
-  if(settings.music&&!AC) startAudio(); else applyMusic();
+  settings.music=!settings.music;
+  if(settings.music&&musicVolume===0){musicVolume=.5;}
+  syncMusicToggle();
+  if(!AC) startAudio(); else { if(AC.state==='suspended') AC.resume().catch(()=>{}); applyMusic(); }
 });
+musicVolumeInput.addEventListener('input',()=>{
+  musicVolume=Number(musicVolumeInput.value)/100; settings.music=musicVolume>0; syncMusicToggle();
+  if(settings.music&&!AC) startAudio(); else if(AC){ if(AC.state==='suspended') AC.resume().catch(()=>{}); applyMusic(); }
+});
+let audioNoticeTimer=null;
+function showAudioNotice(message){ audioNotice.textContent=message; audioNotice.classList.add('show'); clearTimeout(audioNoticeTimer); audioNoticeTimer=setTimeout(()=>audioNotice.classList.remove('show'),3500); }
+function syncFullscreenButton(){
+  const active=!!(document.fullscreenElement||document.webkitFullscreenElement);
+  fullscreenToggle.textContent=active?'⛶':'⛶';
+  fullscreenToggle.setAttribute('aria-label',active?'Thoát toàn màn hình':'Bật toàn màn hình');
+  fullscreenToggle.title=active?'Thoát toàn màn hình':'Bật toàn màn hình';
+}
+async function toggleFullscreen(){
+  const root=document.documentElement;
+  const active=!!(document.fullscreenElement||document.webkitFullscreenElement);
+  try{
+    if(active){
+      const exit=document.exitFullscreen||document.webkitExitFullscreen;
+      if(exit) await exit.call(document); else showAudioNotice('Trình duyệt không hỗ trợ thoát toàn màn hình.');
+    }else{
+      const request=root.requestFullscreen||root.webkitRequestFullscreen;
+      if(!request){ showAudioNotice('Trình duyệt này chưa hỗ trợ toàn màn hình.'); return; }
+      await request.call(root);
+    }
+  }catch(e){ showAudioNotice('Không thể bật toàn màn hình trên trình duyệt này.'); }
+  syncFullscreenButton(); fit();
+}
+fullscreenToggle.addEventListener('click',toggleFullscreen);
+document.addEventListener('fullscreenchange',()=>{syncFullscreenButton();fit();});
+document.addEventListener('webkitfullscreenchange',()=>{syncFullscreenButton();fit();});
 let haloPulse=0;
 function bell(big){
   if(!AC) return; const t=AC.currentTime, k=big?1.7:1;

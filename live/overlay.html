@@ -57,6 +57,17 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:var(-
 #gift .what{font-size:36px;margin-top:6px}
 #gift .pray{font-family:var(--display);font-style:italic;font-size:32px;color:var(--fg);margin-top:12px;opacity:.95}
 #conn{position:absolute;z-index:4;right:16px;bottom:12px;font-size:20px;color:var(--muted);opacity:.6}
+#connectGate{position:absolute;inset:0;z-index:10;display:grid;place-items:center;padding:28px;background:rgba(8,4,3,.72);backdrop-filter:blur(5px)}
+#connectPanel{width:min(100%,900px);padding:42px;background:rgba(28,13,7,.96);border:3px solid var(--gold);border-radius:24px;box-shadow:0 20px 70px rgba(0,0,0,.7);display:grid;gap:24px}
+#connectPanel h2{margin:0;text-align:center;font-family:var(--display);font-size:48px;color:var(--gold2)}
+#connectPanel p{margin:0;color:var(--muted);font-size:32px;line-height:1.45;text-align:center}
+#connectForm{display:grid;gap:12px}
+#connectForm label{font-size:30px;color:var(--muted)}
+#connectForm input{width:100%;padding:28px;font:500 46px var(--body);color:var(--fg);background:rgba(0,0,0,.4);border:2px solid var(--line);border-radius:12px;box-sizing:border-box}
+#connectForm button{min-height:130px;padding:24px;font:600 44px var(--body);color:#fff3dc;background:var(--red);border:2px solid var(--gold);border-radius:12px;cursor:pointer}
+#connectForm button:disabled{opacity:.65;cursor:wait}
+#connectStatus{min-height:1.4em;font-size:26px!important;overflow-wrap:anywhere}
+[hidden]{display:none!important}
 @media (prefers-reduced-motion:reduce){#chant,#gift{transition:none}}
 </style>
 </head>
@@ -77,6 +88,18 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:var(-
   <div id="chant" class="ui"><h4>✦ TỤNG KINH ĐỊNH KỲ ✦</h4><p id="chantText"></p></div>
   <div id="gift" class="ui"><div class="who" id="giftWho"></div><div class="what" id="giftWhat"></div><div class="pray" id="giftPray"></div></div>
   <div id="conn">đang kết nối…</div>
+  <div id="connectGate">
+    <div id="connectPanel">
+      <h2>Chánh Điện Tịnh Tâm</h2>
+      <p>Nhập ID TikTok đang LIVE để vào xem cùng đại chúng.</p>
+      <form id="connectForm">
+        <label for="liveId">ID TikTok LIVE</label>
+        <input id="liveId" maxlength="80" autocomplete="url" placeholder="@tenkenh hoặc liên kết LIVE" required>
+        <button id="connectButton" type="submit">Kết nối LIVE</button>
+      </form>
+      <p id="connectStatus" role="status" aria-live="polite">Chọn kênh đang phát LIVE rồi kết nối.</p>
+    </div>
+  </div>
 </div></div>
 
 <script src="/live-config.js"></script>
@@ -223,27 +246,49 @@ function hearts(v,n){ for (let i=0;i<Math.min(6,n);i++) petals.push({x:v.x+(Math
 let ws=null;
 const localHost=['localhost','127.0.0.1','[::1]'].includes(location.hostname);
 const liveServerURL=localHost?location.origin:String(window.CHANH_DIEN_LIVE_SERVER||'').trim();
-const liveTikTokId=String(window.CHANH_DIEN_TIKTOK_ID||'').trim();
+let liveTikTokId=String(window.CHANH_DIEN_TIKTOK_ID||'').trim();
+const liveIdInput=document.getElementById('liveId'), connectGate=document.getElementById('connectGate');
+const connectForm=document.getElementById('connectForm'), connectButton=document.getElementById('connectButton');
+const connectStatus=document.getElementById('connectStatus'), connectionStatus=document.getElementById('conn');
+if(liveTikTokId) liveIdInput.value='@'+liveTikTokId.replace(/^@/,'');
+connectionStatus.textContent=`chưa kết nối · @${liveTikTokId||'chưa chọn ID'}`;
+function normalizedId(value){ return String(value||'').trim().replace(/^.*tiktok\.com\/@?/i,'').replace(/^@/,'').replace(/\/.*$/,'').toLowerCase(); }
 function connect(){
-  const st=document.getElementById('conn');
-  if(!liveServerURL || !liveTikTokId){ st.textContent='Chưa cấu hình máy chủ LIVE hoặc ID TikTok'; return; }
+  if(!liveServerURL){ connectStatus.textContent='Chưa cấu hình máy chủ LIVE'; connectButton.disabled=false; return; }
+  if(!liveTikTokId){ connectStatus.textContent='Nhập ID TikTok LIVE trước.'; connectButton.disabled=false; return; }
+  if(ws?.readyState===WebSocket.OPEN){ ws.send(JSON.stringify({t:'connect',uniqueId:liveTikTokId})); return; }
+  if(ws?.readyState===WebSocket.CONNECTING) return;
   let url;
   try{
     url=new URL(liveServerURL); url.protocol=url.protocol==='https:'?'wss:':'ws:'; url.pathname='/ws'; url.search=''; url.hash=''; url.searchParams.set('role','web');
-  }catch(e){ st.textContent='Địa chỉ máy chủ LIVE không hợp lệ'; return; }
+  }catch(e){ connectStatus.textContent='Địa chỉ máy chủ LIVE không hợp lệ'; connectButton.disabled=false; return; }
   ws = new WebSocket(url);
-  ws.onopen=()=>{ st.textContent=`đang kết nối @${liveTikTokId}…`; ws.send(JSON.stringify({t:'connect',uniqueId:liveTikTokId})); };
-  ws.onclose=()=>{ st.textContent=`mất kết nối server · @${liveTikTokId} · đang thử lại`; setTimeout(connect,2000); };
+  ws.onopen=()=>{ connectionStatus.textContent=`đang kết nối @${liveTikTokId}…`; connectStatus.textContent=`Đang kết nối @${liveTikTokId}…`; ws.send(JSON.stringify({t:'connect',uniqueId:liveTikTokId})); };
+  ws.onclose=()=>{ connectionStatus.textContent=`mất kết nối server · @${liveTikTokId} · đang thử lại`; connectGate.hidden=false; connectButton.disabled=false; connectStatus.textContent=`Mất kết nối máy chủ · @${liveTikTokId}`; setTimeout(connect,2000); };
   ws.onmessage=e=>{
     const m=JSON.parse(e.data);
     switch(m.t){
       case 'state':
         Object.assign(settings,m.settings); applySettings(); startedAt=m.startedAt;
         visitors.clear(); order=[]; layout(m.cap); for (const p of m.viewers) addVisitor(p,true); updateCount(); renderMerit();
-        st.textContent=m.tiktok?.status==='connected'?`đang xem LIVE @${m.tiktok.uniqueId}`:`đang kết nối @${m.tiktok?.uniqueId||liveTikTokId}…`; break;
+        if(m.tiktok?.status==='connected'&&normalizedId(m.tiktok.uniqueId)===normalizedId(liveTikTokId)){ connectGate.hidden=true; connectButton.disabled=true; connectStatus.textContent=`Đã kết nối LIVE @${m.tiktok.uniqueId}`; connectionStatus.textContent=`đang xem LIVE @${m.tiktok.uniqueId}`; }
+        else connectionStatus.textContent=`đang kết nối @${liveTikTokId}…`;
+        break;
       case 'tiktok':
-        st.textContent=m.status==='connected'?`đang xem LIVE @${m.uniqueId}`:m.status==='connecting'?`đang kết nối @${m.uniqueId}…`:m.status==='error'?`@${m.uniqueId||liveTikTokId}: ${m.error||'không kết nối được'}`:m.status==='disconnected'?`@${m.uniqueId||liveTikTokId}: LIVE đã ngắt`:`đang kết nối @${liveTikTokId}…`; break;
-      case 'webError': st.textContent=`@${liveTikTokId}: ${m.message||'không kết nối được'}`; break;
+        if(m.status==='connected'&&normalizedId(m.uniqueId)===normalizedId(liveTikTokId)){
+          connectGate.hidden=true; connectButton.disabled=true; connectButton.textContent='Đã kết nối';
+          connectStatus.textContent=`Đã kết nối LIVE @${m.uniqueId}`; connectionStatus.textContent=`đang xem LIVE @${m.uniqueId}`;
+        }else if(m.status==='connecting'){
+          connectionStatus.textContent=`đang kết nối @${m.uniqueId}…`; connectStatus.textContent=`Đang kết nối @${m.uniqueId}…`;
+        }else if(m.status==='error'||m.status==='disconnected'){
+          connectGate.hidden=false; connectButton.disabled=false; connectButton.textContent='Kết nối LIVE';
+          connectStatus.textContent=`@${m.uniqueId||liveTikTokId}: ${m.error||'LIVE đã ngắt kết nối'}`;
+          connectionStatus.textContent=connectStatus.textContent;
+        }
+        break;
+      case 'webError':
+        connectGate.hidden=false; connectButton.disabled=false; connectButton.textContent='Kết nối LIVE';
+        connectStatus.textContent=`@${liveTikTokId}: ${m.message||'không kết nối được'}`; connectionStatus.textContent=connectStatus.textContent; break;
       case 'settings': Object.assign(settings,m.settings); applySettings(); if (m.cap!==cap){ layout(m.cap); updateCount(); } break;
       case 'join': if (m.cap!==cap) layout(m.cap); addVisitor(m.v, m.v.demo && visitors.size>8); updateCount(); break;
       case 'leave': removeVisitor(m.id); updateCount(); renderMerit(); break;
@@ -258,12 +303,18 @@ function connect(){
     }
   };
 }
+  connectForm.addEventListener('submit',e=>{
+    e.preventDefault(); liveTikTokId=liveIdInput.value.trim();
+    if(!normalizedId(liveTikTokId)){ connectStatus.textContent='Nhập ID TikTok LIVE hợp lệ.'; return; }
+    connectButton.disabled=true; connectButton.textContent='Đang kết nối…';
+    connectStatus.textContent=`Đang mở kết nối tới @${liveTikTokId.replace(/^@/,'')}…`;
+    connect();
+  });
 function applySettings(){
   document.getElementById('title').textContent=settings.title||'Chánh Điện Tịnh Tâm';
   document.getElementById('subtitle').textContent=settings.subtitle||'Nam Mô A Di Đà Phật';
   applyMusic(); duck(false); scheduleMo();
 }
-connect();
 
 /* ======================= render ======================= */
 const ctx=document.getElementById('c').getContext('2d');

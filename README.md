@@ -17,7 +17,7 @@ Bản web dùng hai dịch vụ: Vercel phục vụ giao diện overlay xem-only
 2. Thêm biến môi trường cho Render: `HOST=0.0.0.0`, `ALLOWED_ORIGINS=https://<domain-vercel-cua-ban>`, `ALLOWED_TIKTOK_USERS=<username-kenh-live>`. Không ghi `@` trong username. Nếu dùng domain riêng, thêm domain đó vào `ALLOWED_ORIGINS`, phân cách bằng dấu phẩy.
 3. Sau khi Render tạo hostname, mở `live-config.js` và đặt `window.CHANH_DIEN_LIVE_SERVER` thành địa chỉ HTTPS của service, ví dụ `https://ten-service.onrender.com`.
 4. Trên Vercel, đặt **Root Directory** trống (thư mục gốc có `index.html`), **Framework Preset** là **Other**, **Build Command** để trống và **Output Directory** là `.`. Triển khai lại.
-5. Mở domain Vercel trên điện thoại. Overlay tự kết nối ID đã cấu hình trong `live-config.js` và chỉ hiển thị người xem/bình luận/quà LIVE.
+5. Mở domain Vercel trên điện thoại, nhập ID TikTok nằm trong `ALLOWED_TIKTOK_USERS`, rồi bấm **Kết nối LIVE**. Kết nối thành công thì màn hình nhập ID tự ẩn và overlay chỉ hiển thị người xem/bình luận/quà LIVE; không cần nhập pháp danh.
 
 Trang phải dùng HTTPS để trình duyệt cho phép âm thanh. Mỗi backend chỉ giữ một kết nối LIVE tại một thời điểm; chỉ các ID trong `ALLOWED_TIKTOK_USERS` mới được phép kết nối. Render Free có thể ngủ sau 15 phút không có truy cập và cần khoảng một phút để khởi động lại; hãy chờ rồi kết nối lại. Nút quà trên trang web vẫn chỉ là mô phỏng, không xử lý thanh toán; quà thật từ TikTok được nhận từ sự kiện LIVE.
 

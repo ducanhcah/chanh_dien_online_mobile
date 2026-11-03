@@ -211,7 +211,9 @@ const fullscreenToggle=document.getElementById('fullscreenToggle'), audioNotice=
 const standaloneMode=matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 if(standaloneMode) fullscreenToggle.hidden=true;
 let musicVolume=.5;
-const TRACKS=['/assets/music/music1.mp3','/assets/music/music2.mp3']; let trackIdx=Math.floor(Math.random()*TRACKS.length), musicEl=null;
+const MUSIC_CHORDS=[[110,164.81,220],[98,146.83,196],[87.31,130.81,174.61],[98,146.83,196]];
+const MUSIC_NOTES=[392,440,523.25,587.33,523.25,440,349.23,392];
+let musicPadTimer=null,musicNoteTimer=null,musicPadStep=0,musicNoteStep=0;
 function syncMusicToggle(){
   musicToggle.setAttribute('aria-pressed',String(settings.music));
   musicToggle.setAttribute('aria-label',settings.music?'Tắt nhạc nền':'Bật nhạc nền');
@@ -224,22 +226,45 @@ function startAudio(){
   master = AC.createGain(); master.gain.value=.9; master.connect(AC.destination);
   musicGain = AC.createGain(); musicGain.gain.value=settings.music?musicVolume:0; musicGain.connect(master);
   sfx = AC.createGain(); sfx.gain.value=1; sfx.connect(master);
-  if (settings.music) nextTrack();
+  if (settings.music) startMusic();
   scheduleMo(); bell(); playTTS();
 }
 document.addEventListener('pointerdown', startAudio, { once:true });
 document.addEventListener('keydown', startAudio, { once:true });
-function nextTrack(){
-  if (!settings.music || !AC) return;
-  if (musicEl){ musicEl.pause(); }
-  musicEl = new Audio(TRACKS[trackIdx++ % TRACKS.length]); const src=AC.createMediaElementSource(musicEl); src.connect(musicGain);
-  musicEl.onended = nextTrack; musicEl.play().catch(()=>{});
+function playAmbientChord(){
+  if(!AC||!musicGain)return;
+  const now=AC.currentTime, chord=MUSIC_CHORDS[musicPadStep++%MUSIC_CHORDS.length];
+  chord.forEach((frequency,index)=>{
+    const oscillator=AC.createOscillator(), filter=AC.createBiquadFilter(), envelope=AC.createGain();
+    oscillator.type=index===0?'sine':'triangle'; oscillator.frequency.value=frequency;
+    filter.type='lowpass'; filter.frequency.value=700; filter.Q.value=.5;
+    const level=[.075,.045,.022][index];
+    envelope.gain.setValueAtTime(.0001,now); envelope.gain.linearRampToValueAtTime(level,now+1.8); envelope.gain.setValueAtTime(level,now+7); envelope.gain.exponentialRampToValueAtTime(.0001,now+10);
+    oscillator.connect(filter);filter.connect(envelope);envelope.connect(musicGain);oscillator.start(now);oscillator.stop(now+10.1);
+  });
+}
+function playAmbientNote(){
+  if(!AC||!musicGain)return;
+  const now=AC.currentTime,frequency=MUSIC_NOTES[musicNoteStep++%MUSIC_NOTES.length];
+  const oscillator=AC.createOscillator(), overtone=AC.createOscillator(), envelope=AC.createGain(), tone=AC.createGain();
+  oscillator.type='sine';oscillator.frequency.value=frequency;
+  overtone.type='sine';overtone.frequency.value=frequency*2.01;
+  tone.gain.value=.18;envelope.gain.setValueAtTime(.0001,now);envelope.gain.linearRampToValueAtTime(.055,now+.08);envelope.gain.exponentialRampToValueAtTime(.0001,now+3.4);
+  oscillator.connect(envelope);overtone.connect(tone);tone.connect(envelope);envelope.connect(musicGain);
+  oscillator.start(now);overtone.start(now);oscillator.stop(now+3.5);overtone.stop(now+3.5);
+}
+function startMusic(){
+  if(!AC||musicPadTimer||musicNoteTimer)return;
+  playAmbientChord();playAmbientNote();
+  musicPadTimer=setInterval(playAmbientChord,9000);musicNoteTimer=setInterval(playAmbientNote,4200);
+}
+function stopMusic(){
+  clearInterval(musicPadTimer);clearInterval(musicNoteTimer);musicPadTimer=musicNoteTimer=null;
 }
 function duck(on){ if(!musicGain) return; const t=AC.currentTime, target = !settings.music ? 0 : musicVolume*(on?.28:1); musicGain.gain.cancelScheduledValues(t); musicGain.gain.setValueAtTime(musicGain.gain.value,t); musicGain.gain.linearRampToValueAtTime(target,t+.5); }
 function applyMusic(){
   if (musicGain){ const t=AC.currentTime; musicGain.gain.cancelScheduledValues(t); musicGain.gain.setTargetAtTime(settings.music?musicVolume:0,t,.08); }
-  if (settings.music){ if (AC && !musicEl) nextTrack(); else musicEl?.play().catch(()=>{}); }
-  else musicEl?.pause();
+  if(settings.music) startMusic(); else stopMusic();
 }
 musicToggle.addEventListener('click',()=>{
   settings.music=!settings.music;

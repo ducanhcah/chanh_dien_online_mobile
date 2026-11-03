@@ -41,7 +41,7 @@ npm start
 4. Bật LIVE trên TikTok, nhập `@username` vào bảng điều khiển, bấm **Kết nối**.
 
 Chưa live vẫn thử được: dùng **Thử tương tác**, **Đổ người mẫu 15/36/64/100** hoặc **Bot mô phỏng**.
-Nhạc nền mặc định tắt; có thể bật lại bằng ô **Nhạc nền** trên bảng điều khiển.
+Nhạc nền mặc định tắt; có thể bật/tắt và chỉnh âm lượng bằng cụm điều khiển trên overlay.
 
 ### Người xem làm được gì
 
@@ -69,7 +69,7 @@ Các lớp trên đã được thử: đường dẫn `../`, `%2e%2e`, `.git/con
 
 - `tiktok-live-connector` là thư viện cộng đồng, không phải API chính thức của TikTok. Nó có thể ngừng chạy khi TikTok đổi hệ thống. Kiểm tra điều khoản TikTok trước khi dùng cho kênh của bạn.
 - Giọng đọc dùng dịch vụ Read Aloud của Microsoft Edge qua mạng (giọng Nam Minh, Hoài My). Máy phát cần có Internet.
-- Hình ảnh trong `assets/` được tạo bằng Google Flow, nhạc nền tạo bằng Gemini. Kiểm tra điều khoản của các dịch vụ đó trước khi dùng thương mại, hoặc thay bằng tài nguyên của bạn.
+- Hình ảnh trong `assets/` được tạo bằng Google Flow. Nhạc nền được tổng hợp trực tiếp bằng Web Audio, không phát bản thu/loop từ thư viện bên thứ ba. Kiểm tra điều khoản của dịch vụ tạo hình trước khi dùng thương mại.
 
 ## Miễn trừ trách nhiệm
 

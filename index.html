@@ -98,7 +98,6 @@ input::placeholder{color:#7d6a52}
       <button class="btn gift" data-coins="99" data-fx="bell"><b>Thỉnh chuông</b><small>99 coins</small></button>
     </span>
     <span class="row">
-      <button class="btn" id="nextTrack" hidden title="Bài kế tiếp"><span id="nowPlaying">♪</span> ›</button>
       <button class="btn" id="mute" hidden aria-pressed="false">Tắt nhạc</button>
       <button class="btn" id="leave" hidden>Rời</button>
     </span>
@@ -197,32 +196,15 @@ function updateCount(){ countEl.textContent = visitors.length; }
 
 /* ---- audio: Web Audio drone + bell + mõ, no files ---- */
 let AC=null, master=null, muted=false, mokTimer=null, bellTimer=null, me=null, haloPulse=0;
-/* Music: Gemini-made tracks played in order, crossfaded, ducked under TTS. Bell + mõ stay synthesized. */
-const TRACKS = [
-  { src:'assets/music/music1.mp3', name:'Trăng trên rừng trúc' },
-  { src:'assets/music/music2.mp3', name:'Hơi thở ban mai' },
-];
-let musicGain=null, musicEls=[], trackIdx=0, duck=1;
+/* Background music in the active overlay is synthesized with Web Audio; no recordings are loaded here. */
+let musicGain=null, duck=1;
 function audioStart(){
   if (AC) return;
   AC = new (window.AudioContext||window.webkitAudioContext)(); master = AC.createGain(); master.gain.value=.8; master.connect(AC.destination);
-  musicGain = AC.createGain(); musicGain.gain.value=.55; musicGain.connect(master);
-  playTrack(Math.floor(Math.random()*TRACKS.length));
+  musicGain = AC.createGain(); musicGain.gain.value=0; musicGain.connect(master);
   bell(); bellTimer=setInterval(bell, 45000); mokTimer=setInterval(mok, 1150);
 }
-function playTrack(i){
-  trackIdx = (i+TRACKS.length)%TRACKS.length; const tr = TRACKS[trackIdx];
-  const el = new Audio(tr.src); el.preload='auto'; el.crossOrigin='anonymous';
-  const src = AC.createMediaElementSource(el), g = AC.createGain(); g.gain.value=0; src.connect(g); g.connect(musicGain);
-  const now = AC.currentTime; g.gain.linearRampToValueAtTime(1, now+4);
-  for (const old of musicEls){ old.g.gain.cancelScheduledValues(now); old.g.gain.setValueAtTime(old.g.gain.value, now); old.g.gain.linearRampToValueAtTime(0, now+4); setTimeout(()=>{ try{old.el.pause();}catch(e){} }, 4200); }
-  musicEls = [{el,g}];
-  el.addEventListener('timeupdate', ()=>{ if (el.duration && el.duration-el.currentTime < 4 && !el._next){ el._next=true; playTrack(trackIdx+1); } });
-  el.addEventListener('error', ()=>{ if (TRACKS.length>1 && !el._next){ el._next=true; playTrack(trackIdx+1); } });
-  el.play().catch(()=>{});
-  const nt=document.getElementById('nowPlaying'); if (nt) nt.textContent = '♪ ' + tr.name;
-}
-function setDuck(on){ if(!musicGain) return; const t=AC.currentTime; musicGain.gain.cancelScheduledValues(t); musicGain.gain.setValueAtTime(musicGain.gain.value,t); musicGain.gain.linearRampToValueAtTime(on?.18:.55, t+.4); }
+function setDuck(){ }
 function bell(big){
   if(!AC||muted) return; const t=AC.currentTime, k = big?1.6:1;
   for (const [f,a,d] of [[432,.5,6],[1296,.18,3.5],[2160,.08,2.2]]) { const o=AC.createOscillator(); o.type='sine'; o.frequency.value=f/(big?2:1); const g=AC.createGain(); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(a*k,t+.02); g.gain.exponentialRampToValueAtTime(.0005,t+d*k); o.connect(g); g.connect(master); o.start(t); o.stop(t+d*k+.1); }
@@ -330,7 +312,7 @@ function enterTemple(id){
   me=v; liveEntered=true;
   try{ localStorage.setItem('phapdanh',pendingName); }catch(e){}
   audioStart(); gate.hidden=true; document.getElementById('me').hidden=false; document.getElementById('meName').textContent=pendingName;
-  for(const id of ['mute','leave','gifts','nextTrack']) document.getElementById(id).hidden=false;
+  for(const id of ['mute','leave','gifts']) document.getElementById(id).hidden=false;
   say(pendingName,' đã vào chánh điện'); showToast('Hoan nghênh '+pendingName+' vào chánh điện'); ttsSpeak('Hoan nghênh '+pendingName+' vào chánh điện');
 }
 function handleLiveMessage(message){
@@ -383,9 +365,8 @@ form.addEventListener('submit', e=>{
   pendingName=name; sendLive({t:'enter',name,skin:mySkin}); setTikTokStatus('Đang xếp chỗ trong chánh điện…',true);
 });
 document.getElementById('gifts').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b||!me) return; donate(me, +b.dataset.coins, b.dataset.fx, SUTRA[Math.floor(Math.random()*SUTRA.length)]); });
-document.getElementById('nextTrack').addEventListener('click', ()=>{ if(AC) playTrack(trackIdx+1); });
-document.getElementById('mute').addEventListener('click', e=>{ muted=!muted; if(master) master.gain.value=muted?0:.8; e.currentTarget.textContent=muted?'Bật nhạc':'Tắt nhạc'; e.currentTarget.setAttribute('aria-pressed',muted); });
-document.getElementById('leave').addEventListener('click', ()=>{ if(me?.liveId) sendLive({t:'leave'}); removeVisitor(me); me=null; liveEntered=false; gate.hidden=false; entryStep.hidden=!liveConnected; document.getElementById('me').hidden=true; for (const id of ['mute','leave','gifts','nextTrack']) document.getElementById(id).hidden=true; for (const m of musicEls){ try{m.el.pause();}catch(e){} } musicEls=[]; if (AC){ AC.close(); AC=null; } clearInterval(mokTimer); clearInterval(bellTimer); renderBoard(); });
+document.getElementById('mute').addEventListener('click', e=>{ muted=!muted; if(master) master.gain.value=muted?0:.8; e.currentTarget.textContent=muted?'Bật tiếng':'Tắt tiếng'; e.currentTarget.setAttribute('aria-pressed',muted); });
+document.getElementById('leave').addEventListener('click', ()=>{ if(me?.liveId) sendLive({t:'leave'}); removeVisitor(me); me=null; liveEntered=false; gate.hidden=false; entryStep.hidden=!liveConnected; document.getElementById('me').hidden=true; for (const id of ['mute','leave','gifts']) document.getElementById(id).hidden=true; if (AC){ AC.close(); AC=null; } clearInterval(mokTimer); clearInterval(bellTimer); renderBoard(); });
 canvas.addEventListener('pointerdown', ()=>{ if(!me||me.state!=='sit') return; const s=SUTRA[Math.floor(Math.random()*SUTRA.length)]; if(liveConnected) sendLive({t:'chat',text:s}); else say(me.name,' '+s); me.bow=1; floaters.push({x:me.seat.x,y:me.seat.y-80,vx:0,vy:-70,t:0,life:2,s:.14}); });
 /* ---- render ---- */
 let last=performance.now();

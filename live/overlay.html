@@ -2,7 +2,12 @@
 <html lang="vi">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Chánh Điện">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.webmanifest">
 <title>Overlay 9:16 · Chánh Điện Tịnh Tâm</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif:ital,wght@0,500;0,700;1,400&family=Be+Vietnam+Pro:wght@400;500;600&display=swap">
 <style>
@@ -203,6 +208,8 @@ let AC=null, master=null, musicGain=null, sfx=null, settings={ music:false, mo:t
 const musicToggle=document.getElementById('musicToggle');
 const musicVolumeInput=document.getElementById('musicVolume'), musicVolumeValue=document.getElementById('musicVolumeValue');
 const fullscreenToggle=document.getElementById('fullscreenToggle'), audioNotice=document.getElementById('audioNotice');
+const standaloneMode=matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+if(standaloneMode) fullscreenToggle.hidden=true;
 let musicVolume=.5;
 const TRACKS=['/assets/music/music1.mp3','/assets/music/music2.mp3']; let trackIdx=Math.floor(Math.random()*TRACKS.length), musicEl=null;
 function syncMusicToggle(){
@@ -262,8 +269,8 @@ async function toggleFullscreen(){
     }else{
       const request=root.requestFullscreen||root.webkitRequestFullscreen;
       if(!request){
-        const safari=/safari/i.test(navigator.userAgent)&&!/chrome|crios|android/i.test(navigator.userAgent);
-        showAudioNotice(safari?'Safari: chọn Chia sẻ → Thêm vào Màn hình chính để mở như ứng dụng.':'Trình duyệt này chưa hỗ trợ toàn màn hình.');
+        const ios=/iPad|iPhone|iPod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+        showAudioNotice(ios?'Trình duyệt iPhone: chọn Chia sẻ → Thêm vào Màn hình chính để mở như ứng dụng.':'Trình duyệt này chưa hỗ trợ toàn màn hình.');
         return;
       }
       await request.call(root);

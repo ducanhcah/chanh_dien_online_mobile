@@ -1,0 +1,12 @@
+{
+  "id": "/",
+  "name": "Chánh Điện Tịnh Tâm",
+  "short_name": "Chánh Điện",
+  "description": "Theo dõi phòng Chánh Điện Tịnh Tâm trên TikTok LIVE.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0c0705",
+  "theme_color": "#0c0705"
+}

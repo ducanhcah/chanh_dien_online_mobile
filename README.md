@@ -21,6 +21,8 @@ Bản web dùng hai dịch vụ: Vercel phục vụ giao diện overlay xem-only
 
 Trang phải dùng HTTPS để trình duyệt cho phép âm thanh. Tên người tặng quà được đọc bằng giọng TTS tiếng Việt khi âm thanh đã được mở trên trình duyệt. Mỗi ID TikTok có room/sự kiện riêng; các tab chọn ID khác nhau không nhận sự kiện chéo. Nhiều tab cùng ID chia sẻ một kết nối upstream để tiết kiệm tài nguyên, nhưng mỗi tab giữ canvas riêng. Backend mặc định giới hạn 5 ID khác nhau đồng thời và một lần mở room mới mỗi 10 giây. Render Free có thể ngủ sau 15 phút không có truy cập và cần khoảng một phút để khởi động lại; chờ rồi kết nối lại. Muốn nhiều kênh đồng thời hơn cần tăng `MAX_PUBLIC_CHANNELS` và dùng máy chủ đủ tài nguyên. Nút quà trên web chỉ mô phỏng, không xử lý thanh toán; quà thật từ TikTok được nhận từ sự kiện LIVE.
 
+Nếu TikTok connector báo `rate_limit_account_day`, hãy tạo API key theo hướng dẫn tại [EulerStream](https://www.eulerstream.com/pricing), rồi thêm `EULERSTREAM_API_KEY` trong **Render → service → Environment** và deploy lại. Key chỉ nằm ở backend; không đưa key vào `live-config.js`, `render.yaml` hay Git.
+
 ## Chạy bộ LIVE trên máy phát
 
 Cần Node.js 20 trở lên.

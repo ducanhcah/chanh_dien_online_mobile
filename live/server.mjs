@@ -21,6 +21,7 @@ const HOST = process.env.HOST || '127.0.0.1';
 const PUBLIC_MODE = !['127.0.0.1', 'localhost', '::1'].includes(HOST);
 const PUBLIC_HOST = String(process.env.PUBLIC_HOST || process.env.RENDER_EXTERNAL_HOSTNAME || '').toLowerCase();
 const ALLOWED_ORIGINS = new Set(String(process.env.ALLOWED_ORIGINS || '').split(',').map(x => x.trim().replace(/\/$/, '')).filter(Boolean));
+const EULERSTREAM_API_KEY = String(process.env.EULERSTREAM_API_KEY || '').trim() || undefined;
 const normalizeTikTokId = value => {
   const raw=String(value||'').trim();
   const fromUrl=raw.match(/tiktok\.com\/@?([^/?#]+)/i)?.[1];
@@ -241,7 +242,7 @@ async function connectTikTok(uniqueId){
   try {
     TikTokLib ||= await import('tiktok-live-connector');
     const { TikTokLiveConnection, WebcastEvent, ControlEvent } = TikTokLib;
-    const conn = new TikTokLiveConnection(uniqueId, { enableExtendedGiftInfo: false, processInitialData: false });
+    const conn = new TikTokLiveConnection(uniqueId, { signApiKey:EULERSTREAM_API_KEY, enableExtendedGiftInfo:false, processInitialData:false });
     const userId = u => String(u?.uniqueId || u?.userId || u?.id || u?.displayId || '').trim();
     const av = u => u?.profilePicture?.url?.[0] || u?.profilePicture?.urlList?.[0] ||
       u?.avatarThumb?.urlList?.[0] || u?.avatarThumb?.url?.[0] ||
@@ -334,7 +335,7 @@ async function startPublicTikTok(room){
     TikTokLib ||= await import('tiktok-live-connector');
     if(publicRooms.get(room.uniqueId)!==room) return;
     const {TikTokLiveConnection,WebcastEvent,ControlEvent}=TikTokLib;
-    const conn=new TikTokLiveConnection(room.uniqueId,{enableExtendedGiftInfo:false,processInitialData:false});
+    const conn=new TikTokLiveConnection(room.uniqueId,{signApiKey:EULERSTREAM_API_KEY,enableExtendedGiftInfo:false,processInitialData:false});
     room.conn=conn;
     const userId=u=>String(u?.uniqueId||u?.userId||u?.id||u?.displayId||'').trim();
     const avatarUrl=u=>u?.profilePicture?.url?.[0]||u?.profilePicture?.urlList?.[0]||u?.avatarThumb?.urlList?.[0]||u?.avatarThumb?.url?.[0]||u?.avatarMedium?.urlList?.[0]||u?.avatarLarge?.urlList?.[0]||'';

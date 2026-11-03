@@ -6,21 +6,20 @@ Mã nguồn chia sẻ miễn phí (MIT). Có hai phần:
 
 | Thư mục | Là gì |
 |---|---|
-| `index.html`, `assets/` | Bản web tĩnh cho mọi người tự vào ngồi tụng (đăng lên Cloudflare Pages) |
-| `live/` | Bộ công cụ phát LIVE: server Node, overlay 9:16, bảng điều khiển |
+| `index.html`, `assets/`, `live-config.js` | Giao diện web cho điện thoại, triển khai trên Vercel |
+| `live/` | Server Node cho WebSocket TikTok LIVE, overlay và bảng điều khiển |
 
 ## Đưa bản web lên điện thoại
 
-Bản `index.html` là web tĩnh, đã dùng bố cục dọc phù hợp màn hình điện thoại. Để đưa lên Internet, không cần cài Node.js hay chạy `npm start`:
+Bản web dùng hai dịch vụ: Vercel phục vụ giao diện tĩnh, còn Render chạy WebSocket để kết nối TikTok LIVE và đồng bộ người vào chánh điện.
 
-1. Cài Vercel CLI bằng `npm install --global vercel`.
-2. Mở terminal tại thư mục gốc chứa `index.html`, chạy `vercel` và làm theo hướng dẫn đăng nhập, chọn preset **Other** nếu được hỏi.
-3. Chạy `vercel --prod` để triển khai bản chính thức.
-4. Mở địa chỉ Vercel cung cấp trên điện thoại.
+1. Tạo một **Render Web Service** từ repository. Đặt **Root Directory** là `live`, **Build Command** là `npm install`, **Start Command** là `npm start`.
+2. Thêm biến môi trường cho Render: `HOST=0.0.0.0`, `ALLOWED_ORIGINS=https://<domain-vercel-cua-ban>`, `ALLOWED_TIKTOK_USERS=<username-kenh-live>`. Không ghi `@` trong username. Nếu dùng domain riêng, thêm domain đó vào `ALLOWED_ORIGINS`, phân cách bằng dấu phẩy.
+3. Sau khi Render tạo hostname, mở `live-config.js` và đặt `window.CHANH_DIEN_LIVE_SERVER` thành địa chỉ HTTPS của service, ví dụ `https://ten-service.onrender.com`.
+4. Trên Vercel, đặt **Root Directory** trống (thư mục gốc có `index.html`), **Framework Preset** là **Other**, **Build Command** để trống và **Output Directory** là `.`. Triển khai lại.
+5. Mở domain Vercel trên điện thoại, nhập ID TikTok LIVE nằm trong allowlist Render, bấm **Kết nối**, rồi nhập pháp danh để vào.
 
-Trang cần được mở qua HTTPS để các tính năng âm thanh của trình duyệt hoạt động ổn định. Trên điện thoại, nhập pháp danh và nhấn **Vào chánh điện**; đây cũng là thao tác cho phép trình duyệt bật âm thanh.
-
-**Lưu ý:** bản web tĩnh hiện chạy mô phỏng riêng trên từng thiết bị. Người dùng ở các điện thoại khác nhau không nhìn thấy nhau; nút quà chỉ mô phỏng tương tác, không xử lý thanh toán. Muốn có phòng chung cần triển khai thêm backend công khai. Thư mục `live/` là bộ công cụ LIVE riêng chạy trên máy phát, không phải backend của trang web công khai.
+Trang phải dùng HTTPS để trình duyệt cho phép âm thanh. Mỗi backend chỉ giữ một kết nối LIVE tại một thời điểm; chỉ các ID trong `ALLOWED_TIKTOK_USERS` mới được phép kết nối. Nếu service Render ngủ hoặc khởi động lại, người dùng cần kết nối lại. Nút quà trên trang web vẫn chỉ là mô phỏng, không xử lý thanh toán; quà thật từ TikTok được nhận từ sự kiện LIVE.
 
 ## Chạy bộ LIVE trên máy phát
 
@@ -53,8 +52,8 @@ Nhạc nền mặc định tắt; có thể bật lại bằng ô **Nhạc nền
 Dự án được viết để ai tải về chạy cũng an toàn mặc định:
 
 - **Không dùng tài khoản TikTok.** Server chỉ đọc sự kiện công khai của phòng live theo username. Không cần, không hỏi và không lưu mật khẩu, cookie hay session. Không gửi tin nhắn thay bạn.
-- **Chỉ mở trên máy mình.** Server lắng nghe `127.0.0.1`, máy khác trong mạng hay Internet không truy cập được. Muốn mở ra ngoài phải tự đặt biến `HOST`. Không nên làm vậy khi chưa thêm đăng nhập.
-- **Chặn trang web lạ điều khiển.** WebSocket chỉ nhận kết nối từ chính trang của server (kiểm tra `Origin`), và header `Host` phải là localhost (chống DNS rebinding). Một trang web khác đang mở trong cùng trình duyệt không gửi được lệnh. Cửa sổ overlay chỉ nhận dữ liệu, không gửi lệnh được.
+- **Local mặc định.** Server lắng nghe `127.0.0.1`. Chỉ cấu hình `HOST=0.0.0.0` khi triển khai backend công khai và đặt đầy đủ allowlist.
+- **Giới hạn backend public.** Public mode chỉ phục vụ `/health` và WebSocket, kiểm tra `Host`/`Origin`, chỉ nhận ID có trong `ALLOWED_TIKTOK_USERS`, và chỉ role web với các lệnh kết nối, vào/rời, bình luận mới được chấp nhận. Bảng điều khiển nội bộ không được mở trên public mode.
 - **File tĩnh có danh sách trắng.** Chỉ phục vụ `/assets` và `/live`. Chặn file ẩn (`.git`, `.env`), `node_modules`, mã server, `package.json` và mọi đường dẫn `../`.
 - **Không tin dữ liệu vào.** Tên người xem, bình luận và tên quà đều bị cắt độ dài. Cài đặt chỉ nhận đúng khóa, đúng kiểu, trong giới hạn. Văn bản đưa vào giọng đọc được escape XML. Mọi chữ trên màn hình vẽ bằng `textContent` hoặc canvas, không chèn HTML, nên bình luận chứa mã độc chỉ hiện ra như chữ thường.
 - **Chống spam.** Hàng đợi giọng đọc tối đa 15 câu. Bình luận thường không đọc thành tiếng.

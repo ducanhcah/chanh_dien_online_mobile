@@ -100,18 +100,28 @@ input::placeholder{color:#7d6a52}
   <div id="gate">
     <form id="gateForm">
       <h1>Chánh Điện Online</h1>
-      <p>Nhập pháp danh, chọn y phục rồi vào an tọa. Đây là bản thử để kiểm tra giao diện 2.5D: nút quà ở dưới mô phỏng donation TikTok.</p>
-      <label for="dharma">Pháp danh</label>
-      <input id="dharma" name="dharma" maxlength="20" autocomplete="nickname" placeholder="Ví dụ: Diệu Hạnh, Minh Tâm…" required>
-      <label>Y phục</label>
-      <div class="seg" id="skin">
-        <button type="button" data-skin="man" aria-pressed="true">Nam áo lam</button>
-        <button type="button" data-skin="woman" aria-pressed="false">Nữ áo lam</button>
-        <button type="button" data-skin="granny" aria-pressed="false">Áo nâu</button>
+      <p>Kết nối tới phòng TikTok LIVE trước, sau đó nhập pháp danh để vào an tọa.</p>
+      <div id="connectStep">
+        <label for="tiktokId">ID TikTok đang LIVE</label>
+        <div class="row">
+          <input id="tiktokId" maxlength="80" autocomplete="url" placeholder="@tenkenh hoặc liên kết LIVE">
+          <button type="button" class="btn primary" id="connectTikTok">Kết nối</button>
+        </div>
+        <span class="hint" id="tiktokStatus" role="status" aria-live="polite">Chưa kết nối</span>
       </div>
-      <div class="row">
-        <button type="submit" class="btn primary">Vào chánh điện</button>
-        <span class="hint">Chạm vào chánh điện để tụng một câu.</span>
+      <div id="entryStep" hidden>
+        <label for="dharma">Pháp danh</label>
+        <input id="dharma" name="dharma" maxlength="20" autocomplete="nickname" placeholder="Ví dụ: Diệu Hạnh, Minh Tâm…" required>
+        <label>Y phục</label>
+        <div class="seg" id="skin">
+          <button type="button" data-skin="man" aria-pressed="true">Nam áo lam</button>
+          <button type="button" data-skin="woman" aria-pressed="false">Nữ áo lam</button>
+          <button type="button" data-skin="granny" aria-pressed="false">Áo nâu</button>
+        </div>
+        <div class="row">
+          <button type="submit" class="btn primary">Vào chánh điện</button>
+          <span class="hint">Chạm vào chánh điện để tụng một câu.</span>
+        </div>
       </div>
       <div class="row">
         <span class="hint">Mã nguồn mở</span>
@@ -123,6 +133,7 @@ input::placeholder{color:#7d6a52}
   </div>
 </div></div>
 
+<script src="live-config.js"></script>
 <script>
 /* ==========================================================
    2.5D hall: painted 9:16 background (Flow) + sprites on canvas.
@@ -167,20 +178,15 @@ const DOOR = { x: SW/2, y: SH + 120 };         // walk in from below the frame
 
 /* ---- visitors ---- */
 const visitors = [], fx = [], floaters = [];
-const SKINS = ['man','woman','granny','man','woman','nun','monk','child'];
 function freeSeat(){ return seats.find(s=>!s.taken) || null; }
-function addVisitor(name, skin, instant, isMe){
+function addVisitor(name, skin, instant, isMe, liveId=''){
   const seat = freeSeat(); if(!seat) return null;
-  const v = { name, skin, seat, x: instant?seat.x:DOOR.x, y: instant?seat.y:DOOR.y, state: instant?'sit':'walk', t:0, frame: 7, ft:0, sitT:-1, flip:false, fade: instant?1:0, bob:0, bow:0, glow:0, coins:0, isMe:!!isMe, phase:Math.random()*6.28 };
+  const v = { name, skin, seat, liveId, demo:false, x: instant?seat.x:DOOR.x, y: instant?seat.y:DOOR.y, state: instant?'sit':'walk', t:0, frame: 7, ft:0, sitT:-1, flip:false, fade: instant?1:0, bob:0, bow:0, glow:0, coins:0, isMe:!!isMe, phase:Math.random()*6.28 };
   seat.taken = v; visitors.push(v); updateCount(); return v;
 }
 function removeVisitor(v){ if(!v) return; v.seat.taken=null; visitors.splice(visitors.indexOf(v),1); updateCount(); }
 const countEl = document.getElementById('count');
 function updateCount(){ countEl.textContent = visitors.length; }
-
-// demo crowd so the hall never opens empty (replace with live viewers later)
-const DEMO = ['Diệu Hạnh','Minh Tâm','Thiện Đức','Huệ An','Tịnh Nhã','Quảng Trí','Chơn Như','Pháp Hỷ','Nguyên Thanh','Tâm Đăng','Diệu Liên','Trí Hải','Phước Lộc','Hạnh Nguyện','Như Ý','Bảo Châu','Thanh Lương','Từ Tâm','An Lạc','Giác Hoa','Tuệ Minh','Liên Hương'];
-DEMO.forEach((n,i)=>{ const v = addVisitor(n, SKINS[i%SKINS.length], true); v.coins = [120,80,55,30,20,12,8,5][i]||0; });
 
 /* ---- audio: Web Audio drone + bell + mõ, no files ---- */
 let AC=null, master=null, muted=false, mokTimer=null, bellTimer=null, me=null, haloPulse=0;
@@ -275,29 +281,105 @@ function donate(v, coins, kind, text){
 let mySkin='man';
 document.getElementById('skin').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b) return; mySkin=b.dataset.skin; for (const x of e.currentTarget.children) x.setAttribute('aria-pressed', x===b); });
 const gate=document.getElementById('gate'), form=document.getElementById('gateForm'), input=document.getElementById('dharma');
+const tiktokInput=document.getElementById('tiktokId'), tiktokStatus=document.getElementById('tiktokStatus');
+const connectButton=document.getElementById('connectTikTok'), entryStep=document.getElementById('entryStep');
+const liveServerURL=String(window.CHANH_DIEN_LIVE_SERVER||'').trim();
+let liveSocket=null, liveConnected=false, liveEntered=false, pendingName='';
 try { const s=localStorage.getItem('phapdanh'); if(s) input.value=s; } catch(e){}
+function setTikTokStatus(text, connected=false){ tiktokStatus.textContent=text; tiktokStatus.style.color=connected?'var(--gold)':'var(--muted)'; }
+function sendLive(message){ if(liveSocket?.readyState===WebSocket.OPEN) liveSocket.send(JSON.stringify(message)); }
+function upsertLiveViewer(data){
+  if(!data?.id) return null;
+  let v=visitors.find(x=>x.liveId===data.id);
+  if(!v){ v=addVisitor(data.name||'Ẩn danh', data.skin||'man', true, false, data.id); if(!v) return null; }
+  v.name=String(data.name||v.name).slice(0,20); v.skin=data.skin||v.skin; v.coins=Number(data.coins)||0; v.demo=!!data.demo;
+  renderBoard(); return v;
+}
+function syncLiveViewers(list){
+  const ids=new Set(list.map(v=>v.id));
+  for(const v of [...visitors]) if(v.demo || (v.liveId && !ids.has(v.liveId))) removeVisitor(v);
+  for(const v of list) upsertLiveViewer(v);
+}
+function setTikTokState(state){
+  liveConnected=state?.status==='connected';
+  connectButton.disabled=state?.status==='connecting';
+  if(liveConnected){
+    tiktokInput.value=state.uniqueId||tiktokInput.value;
+    connectButton.textContent='Đã kết nối'; connectButton.disabled=true; entryStep.hidden=false;
+    setTikTokStatus(`Đã kết nối phòng LIVE @${state.uniqueId}`,true);
+  }else{
+    connectButton.textContent='Kết nối'; entryStep.hidden=true;
+    if(state?.status==='connecting') setTikTokStatus(`Đang kết nối @${state.uniqueId}…`);
+    else if(state?.status==='error') setTikTokStatus(`Không kết nối được: ${state.error||'hãy kiểm tra ID và trạng thái LIVE'}`);
+    else if(state?.status==='disconnected') setTikTokStatus('Phòng LIVE đã ngắt kết nối. Hãy thử kết nối lại.');
+    else setTikTokStatus('Chưa kết nối');
+  }
+}
+function enterTemple(id){
+  let v=visitors.find(x=>x.liveId===id);
+  if(!v) v=addVisitor(pendingName,mySkin,false,true,id);
+  if(!v){ setTikTokStatus('Chánh điện đã kín chỗ.'); return; }
+  v.name=pendingName; v.skin=mySkin; v.isMe=true; v.state='walk'; v.x=DOOR.x; v.y=DOOR.y; v.frame=0; v.ft=0; v.fade=0;
+  me=v; liveEntered=true;
+  try{ localStorage.setItem('phapdanh',pendingName); }catch(e){}
+  audioStart(); gate.hidden=true; document.getElementById('me').hidden=false; document.getElementById('meName').textContent=pendingName;
+  for(const id of ['mute','leave','gifts','nextTrack']) document.getElementById(id).hidden=false;
+  say(pendingName,' đã vào chánh điện'); showToast('Hoan nghênh '+pendingName+' vào chánh điện'); ttsSpeak('Hoan nghênh '+pendingName+' vào chánh điện');
+}
+function handleLiveMessage(message){
+  if(message.t==='state'){ setTikTokState(message.tiktok); syncLiveViewers(message.viewers||[]); return; }
+  if(message.t==='tiktok'){ setTikTokState(message); return; }
+  if(message.t==='webError'){ connectButton.disabled=false; setTikTokStatus(message.message||'Kết nối thất bại.'); return; }
+  if(message.t==='entered'){ enterTemple(message.id); return; }
+  if(message.t==='join'){ upsertLiveViewer(message.v); return; }
+  if(message.t==='leave'){
+    const v=visitors.find(x=>x.liveId===message.id); if(v) removeVisitor(v); return;
+  }
+  if(message.t==='chat'){
+    const v=visitors.find(x=>x.liveId===message.id); if(v) v.bow=1; say(message.name||'Phật tử',message.text||''); return;
+  }
+  if(message.t==='skin'){
+    const v=visitors.find(x=>x.liveId===message.id); if(v) v.skin=message.skin; return;
+  }
+  if(message.t==='gift'){
+    const v=visitors.find(x=>x.liveId===message.id); if(!v) return;
+    v.coins=Number(message.total)||v.coins; v.glow=1; v.bow=1;
+    const kind=message.tier>=3?'bell':message.tier===2?'lotus':'petal';
+    fx.push({kind,x:v.seat.x,y:v.seat.y-120*v.seat.scale,t:0,life:2.5,scale:v.seat.scale*1.1});
+    say(v.name,` đã tặng ${message.giftName||'quà'} ×${message.count||1}`,true); showToast(`${v.name} tặng ${message.giftName||'quà'}`); renderBoard();
+    return;
+  }
+  if(message.t==='chant'){ say('Đại chúng',message.text||''); ttsSpeak(message.text||''); }
+}
+connectButton.addEventListener('click',()=>{
+  const uniqueId=tiktokInput.value.trim();
+  if(!uniqueId){ setTikTokStatus('Nhập ID TikTok hoặc liên kết LIVE trước.'); return; }
+  if(!liveServerURL){ setTikTokStatus('Trang chưa được cấu hình máy chủ LIVE.'); return; }
+  connectButton.disabled=true;
+  setTikTokStatus('Đang mở kết nối tới máy chủ…');
+  if(liveSocket?.readyState===WebSocket.OPEN){ sendLive({t:'connect',uniqueId}); return; }
+  try{
+    const url=new URL(liveServerURL); url.protocol=url.protocol==='https:'?'wss:':'ws:'; url.pathname='/ws'; url.search=''; url.hash=''; url.searchParams.set('role','web');
+    liveSocket=new WebSocket(url);
+    liveSocket.onopen=()=>sendLive({t:'connect',uniqueId});
+    liveSocket.onmessage=event=>{ try{ handleLiveMessage(JSON.parse(event.data)); }catch(e){} };
+    liveSocket.onerror=()=>setTikTokStatus('Không tới được máy chủ LIVE.');
+    liveSocket.onclose=()=>{ liveConnected=false; if(!liveEntered){ entryStep.hidden=true; connectButton.disabled=false; setTikTokStatus('Mất kết nối máy chủ LIVE.'); } };
+  }catch(e){ connectButton.disabled=false; setTikTokStatus('Địa chỉ máy chủ LIVE chưa hợp lệ.'); }
+});
+if(!liveServerURL){ connectButton.disabled=true; setTikTokStatus('Máy chủ LIVE chưa được cấu hình.'); }
 form.addEventListener('submit', e=>{
   e.preventDefault();
+  if(!liveConnected || liveSocket?.readyState!==WebSocket.OPEN){ setTikTokStatus('Hãy kết nối TikTok LIVE thành công trước.'); return; }
   const name=input.value.trim().replace(/\s+/g,' ').slice(0,20); if(!name) return;
   if(!freeSeat()){ showToast('Chánh điện đã kín chỗ, xin chờ một lát.'); return; }
-  try{ localStorage.setItem('phapdanh',name); }catch(e){}
-  audioStart();
-  me = addVisitor(name, mySkin, false, true);
-  gate.hidden=true; document.getElementById('me').hidden=false; document.getElementById('meName').textContent=name;
-  for (const id of ['mute','leave','gifts','nextTrack']) document.getElementById(id).hidden=false;
-  say(name,' đã vào chánh điện'); showToast('Hoan nghênh '+name+' vào chánh điện'); ttsSpeak('Hoan nghênh '+name+' vào chánh điện');
+  pendingName=name; sendLive({t:'enter',name,skin:mySkin}); setTikTokStatus('Đang xếp chỗ trong chánh điện…',true);
 });
 document.getElementById('gifts').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b||!me) return; donate(me, +b.dataset.coins, b.dataset.fx, SUTRA[Math.floor(Math.random()*SUTRA.length)]); });
 document.getElementById('nextTrack').addEventListener('click', ()=>{ if(AC) playTrack(trackIdx+1); });
 document.getElementById('mute').addEventListener('click', e=>{ muted=!muted; if(master) master.gain.value=muted?0:.8; e.currentTarget.textContent=muted?'Bật nhạc':'Tắt nhạc'; e.currentTarget.setAttribute('aria-pressed',muted); });
-document.getElementById('leave').addEventListener('click', ()=>{ removeVisitor(me); me=null; gate.hidden=false; document.getElementById('me').hidden=true; for (const id of ['mute','leave','gifts','nextTrack']) document.getElementById(id).hidden=true; for (const m of musicEls){ try{m.el.pause();}catch(e){} } musicEls=[]; if (AC){ AC.close(); AC=null; } clearInterval(mokTimer); clearInterval(bellTimer); renderBoard(); });
-canvas.addEventListener('pointerdown', ()=>{ if(!me||me.state!=='sit') return; const s=SUTRA[Math.floor(Math.random()*SUTRA.length)]; say(me.name,' '+s); me.bow=1; floaters.push({x:me.seat.x,y:me.seat.y-80,vx:0,vy:-70,t:0,life:2,s:.14}); });
-// demo activity: random comments and small gifts from the crowd
-setInterval(()=>{ if (visitors.length<2) return; const v=visitors[Math.floor(Math.random()*visitors.length)]; if (v===me) return;
-  if (Math.random()<.3) donate(v, [1,1,5,20][Math.floor(Math.random()*4)], ['petal','petal','incense','lotus'][Math.floor(Math.random()*4)], '');
-  else { say(v.name,' '+SUTRA[Math.floor(Math.random()*SUTRA.length)]); v.bow=1; }
-}, 4200);
-
+document.getElementById('leave').addEventListener('click', ()=>{ if(me?.liveId) sendLive({t:'leave'}); removeVisitor(me); me=null; liveEntered=false; gate.hidden=false; entryStep.hidden=!liveConnected; document.getElementById('me').hidden=true; for (const id of ['mute','leave','gifts','nextTrack']) document.getElementById(id).hidden=true; for (const m of musicEls){ try{m.el.pause();}catch(e){} } musicEls=[]; if (AC){ AC.close(); AC=null; } clearInterval(mokTimer); clearInterval(bellTimer); renderBoard(); });
+canvas.addEventListener('pointerdown', ()=>{ if(!me||me.state!=='sit') return; const s=SUTRA[Math.floor(Math.random()*SUTRA.length)]; if(liveConnected) sendLive({t:'chat',text:s}); else say(me.name,' '+s); me.bow=1; floaters.push({x:me.seat.x,y:me.seat.y-80,vx:0,vy:-70,t:0,life:2,s:.14}); });
 /* ---- render ---- */
 let last=performance.now();
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;

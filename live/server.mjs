@@ -1,13 +1,12 @@
 // Chánh Điện Tịnh Tâm — live server
-// Runs on the streaming PC. Serves the overlay + control panel, listens to a TikTok LIVE room,
-// keeps the list of seated viewers, generates Vietnamese voice lines with Edge TTS and pushes
-// everything to the overlay over WebSocket.
+// Runs locally for the streaming control panel, or publicly as the WebSocket backend for the mobile web page.
 //
 //   cd live && npm install && node server.mjs        → http://localhost:3000/live/control.html
 //
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
@@ -18,6 +17,12 @@ const TTS_DIR = path.join(__dirname, 'tts');
 fs.mkdirSync(TTS_DIR, { recursive: true });
 for (const f of fs.readdirSync(TTS_DIR)) { try { fs.unlinkSync(path.join(TTS_DIR, f)); } catch {} }
 const PORT = +process.env.PORT || 3000;
+const HOST = process.env.HOST || '127.0.0.1';
+const PUBLIC_MODE = !['127.0.0.1', 'localhost', '::1'].includes(HOST);
+const PUBLIC_HOST = String(process.env.PUBLIC_HOST || process.env.RENDER_EXTERNAL_HOSTNAME || '').toLowerCase();
+const ALLOWED_ORIGINS = new Set(String(process.env.ALLOWED_ORIGINS || '').split(',').map(x => x.trim().replace(/\/$/, '')).filter(Boolean));
+const normalizeTikTokId = value => String(value || '').trim().replace(/^.*tiktok\.com\/@?/i, '').replace(/^@/, '').replace(/\/.*$/, '').toLowerCase();
+const ALLOWED_TIKTOK_USERS = new Set(String(process.env.ALLOWED_TIKTOK_USERS || '').split(',').map(normalizeTikTokId).filter(Boolean));
 
 /* ------------------------------------------------------------------ state */
 const settings = {
@@ -173,8 +178,9 @@ scheduleChant();
 /* --------------------------------------------------------------- TikTok */
 let TikTokLib = null;
 async function connectTikTok(uniqueId){
-  uniqueId = String(uniqueId || '').trim().replace(/^.*tiktok\.com\/@?/i, '').replace(/^@/, '').replace(/\/.*$/, '');
+  uniqueId = normalizeTikTokId(uniqueId);
   if (!uniqueId) return;
+  if (['connected','connecting'].includes(tiktokState.status) && tiktokState.uniqueId.toLowerCase() === uniqueId) return;
   await disconnectTikTok();
   tiktokState = { status: 'connecting', uniqueId, error: '' }; broadcast({ t:'tiktok', ...tiktokState });
   try {
@@ -260,6 +266,50 @@ function onControl(m){
   }
 }
 
+function sendWebError(ws, message){
+  if (ws.readyState === 1) ws.send(JSON.stringify({ t:'webError', message }));
+}
+function removeWebViewer(ws){
+  if (!ws.webViewerId) return;
+  const id = ws.webViewerId;
+  ws.webViewerId = '';
+  if (viewers.delete(id)) broadcast({ t:'leave', id, cap: capacity() });
+}
+function onWebMessage(ws, message){
+  if (!message || typeof message !== 'object') return;
+  if (message.t === 'connect'){
+    const uniqueId = normalizeTikTokId(message.uniqueId);
+    if (!uniqueId) return sendWebError(ws, 'Nhập ID TikTok hoặc liên kết LIVE hợp lệ.');
+    if (PUBLIC_MODE && !ALLOWED_TIKTOK_USERS.has(uniqueId)) return sendWebError(ws, 'ID TikTok này chưa được cho phép trên máy chủ.');
+    if (Date.now() - (ws.lastConnectAt || 0) < 3000) return sendWebError(ws, 'Vui lòng đợi một chút trước khi thử kết nối lại.');
+    ws.lastConnectAt = Date.now();
+    connectTikTok(uniqueId);
+    return;
+  }
+  if (message.t === 'enter'){
+    if (tiktokState.status !== 'connected') return sendWebError(ws, 'Hãy kết nối TikTok LIVE thành công trước.');
+    if (ws.webViewerId) return;
+    const name = String(message.name || '').trim().replace(/\s+/g, ' ').slice(0, 20);
+    const skin = ['man','woman','granny'].includes(message.skin) ? message.skin : 'man';
+    if (!name) return sendWebError(ws, 'Nhập pháp danh để vào chánh điện.');
+    const id = `web_${randomUUID()}`;
+    const { v } = seat(id, name, { skin });
+    if (!v) return sendWebError(ws, 'Chánh điện đã kín chỗ.');
+    ws.webViewerId = id;
+    ws.send(JSON.stringify({ t:'entered', id }));
+    return;
+  }
+  if (message.t === 'leave'){
+    removeWebViewer(ws);
+    return;
+  }
+  if (message.t === 'chat' && ws.webViewerId && Date.now() - (ws.lastChatAt || 0) >= 1000){
+    const viewer = viewers.get(ws.webViewerId);
+    const text = String(message.text || '').slice(0, 120);
+    if (viewer && text){ ws.lastChatAt = Date.now(); onChat(viewer.id, viewer.name, text); }
+  }
+}
+
 // Only known keys, right types, sane ranges: the panel is local, but nothing from the socket is trusted blindly.
 const SETTING_RULES = {
   title: v => String(v).slice(0, 40), subtitle: v => String(v).slice(0, 60),
@@ -299,17 +349,26 @@ function setBots(on, n, pace){
 
 /* -------------------------------------------------------------- server */
 // Security notes (this file is meant to be shared publicly):
-//  • listens on 127.0.0.1 only; nothing is reachable from the LAN or internet unless HOST is changed on purpose
-//  • Host header must be localhost/127.0.0.1 (blocks DNS-rebinding pages from talking to the server)
-//  • WebSocket only accepts pages served by this server (Origin check), so other sites open in the
-//    same browser cannot send control commands
+//  • defaults to 127.0.0.1; public mode requires explicit host, origin and TikTok username allowlists
+//  • public mode serves only health checks and accepts restricted web-role WebSocket commands
+//  • local mode checks Host/Origin; public mode requires the configured site Origin
 //  • static files: only /assets and /live, no dot-files, no node_modules, no server source, no path escapes
 //  • no TikTok password, cookie or session is ever used or stored; only public room events are read
-const HOST = process.env.HOST || '127.0.0.1';
 const MIME = { '.html':'text/html; charset=utf-8', '.js':'text/javascript', '.css':'text/css', '.json':'application/json',
   '.png':'image/png', '.jpg':'image/jpeg', '.webp':'image/webp', '.mp3':'audio/mpeg', '.svg':'image/svg+xml', '.ico':'image/x-icon' };
 const ALLOWED_HOSTS = new Set([`localhost:${PORT}`, `127.0.0.1:${PORT}`, `[::1]:${PORT}`]);
-const okHost = h => ALLOWED_HOSTS.has(String(h || '').toLowerCase());
+function okHost(value){
+  const host = String(value || '').toLowerCase();
+  if (!PUBLIC_MODE) return ALLOWED_HOSTS.has(host);
+  return !!PUBLIC_HOST && (host === PUBLIC_HOST || host === `${PUBLIC_HOST}:443`);
+}
+function okOrigin(value){
+  if (!value) return !PUBLIC_MODE;
+  try {
+    const origin = new URL(value);
+    return PUBLIC_MODE ? ALLOWED_ORIGINS.has(origin.origin) : okHost(origin.host);
+  } catch { return false; }
+}
 const SEP = path.sep;
 function resolveStatic(urlPath){
   let p = urlPath === '/' ? '/live/control.html' : urlPath;
@@ -324,6 +383,8 @@ const server = http.createServer((req, res) => {
   if (!okHost(req.headers.host)) { res.writeHead(421).end('wrong host'); return; }
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405).end(); return; }
   let p; try { p = decodeURIComponent(new URL(req.url, 'http://x').pathname); } catch { res.writeHead(400).end(); return; }
+  if (p === '/health') { res.writeHead(200, { 'Content-Type':'text/plain; charset=utf-8' }).end('ok'); return; }
+  if (PUBLIC_MODE) { res.writeHead(404).end('not found'); return; }
   const file = resolveStatic(p);
   if (!file) { res.writeHead(404).end('not found'); return; }
   fs.stat(file, (err, st) => {
@@ -337,17 +398,21 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024,
   verifyClient: ({ origin, req }) => {
     if (!okHost(req.headers.host)) return false;
-    if (!origin) return true;                                   // OBS / non-browser clients send no Origin
-    try { return okHost(new URL(origin).host); } catch { return false; }
+    return okOrigin(origin);
   } });
 function broadcast(msg, only){ const s = JSON.stringify(msg); for (const c of wss.clients) if (c.readyState === 1 && (!only || c.role === only)) c.send(s); }
 wss.on('connection', (ws, req) => {
-  ws.role = new URL(req.url, 'http://x').searchParams.get('role') === 'control' ? 'control' : 'overlay';
+  const requestedRole = new URL(req.url, 'http://x').searchParams.get('role');
+  ws.role = requestedRole === 'web' ? 'web' : requestedRole === 'control' && !PUBLIC_MODE ? 'control' : 'overlay';
   ws.send(JSON.stringify(snapshot()));
   if (ws.role === 'control') ws.send(JSON.stringify({ t:'logs', lines: log }));
   ws.on('message', buf => {
-    if (ws.role !== 'control') return;                          // overlays only listen
-    try { const m = JSON.parse(buf); if (m && m.t === 'ctl') onControl(m); } catch (e) { addLog('Lệnh lỗi: ' + e.message); }
+    try {
+      const m = JSON.parse(buf);
+      if (ws.role === 'control' && m && m.t === 'ctl') onControl(m);
+      else if (ws.role === 'web') onWebMessage(ws, m);
+    } catch (e) { if (ws.role === 'control') addLog('Lệnh lỗi: ' + e.message); }
   });
+  ws.on('close', () => { if (ws.role === 'web') removeWebViewer(ws); });
 });
 server.listen(PORT, HOST, () => addLog(`Server chạy tại http://localhost:${PORT}  ·  Bảng điều khiển: http://localhost:${PORT}/live/control.html  ·  Overlay: http://localhost:${PORT}/live/overlay.html`));

@@ -1,0 +1,1 @@
+window.CHANH_DIEN_LIVE_SERVER = '';

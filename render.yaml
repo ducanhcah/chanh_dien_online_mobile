@@ -2,6 +2,7 @@ services:
   - type: web
     name: chanh-dien-live-mobile
     runtime: node
+    plan: free
     rootDir: live
     buildCommand: npm install
     startCommand: npm start

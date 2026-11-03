@@ -232,18 +232,18 @@ function connect(){
     url=new URL(liveServerURL); url.protocol=url.protocol==='https:'?'wss:':'ws:'; url.pathname='/ws'; url.search=''; url.hash=''; url.searchParams.set('role','web');
   }catch(e){ st.textContent='Địa chỉ máy chủ LIVE không hợp lệ'; return; }
   ws = new WebSocket(url);
-  ws.onopen=()=>{ st.textContent='đang kết nối TikTok LIVE…'; ws.send(JSON.stringify({t:'connect',uniqueId:liveTikTokId})); };
-  ws.onclose=()=>{ st.textContent='mất kết nối server… đang thử lại'; setTimeout(connect,2000); };
+  ws.onopen=()=>{ st.textContent=`đang kết nối @${liveTikTokId}…`; ws.send(JSON.stringify({t:'connect',uniqueId:liveTikTokId})); };
+  ws.onclose=()=>{ st.textContent=`mất kết nối server · @${liveTikTokId} · đang thử lại`; setTimeout(connect,2000); };
   ws.onmessage=e=>{
     const m=JSON.parse(e.data);
     switch(m.t){
       case 'state':
         Object.assign(settings,m.settings); applySettings(); startedAt=m.startedAt;
         visitors.clear(); order=[]; layout(m.cap); for (const p of m.viewers) addVisitor(p,true); updateCount(); renderMerit();
-        st.textContent=m.tiktok?.status==='connected'?`LIVE @${m.tiktok.uniqueId}`:'đang kết nối TikTok LIVE…'; break;
+        st.textContent=m.tiktok?.status==='connected'?`đang xem LIVE @${m.tiktok.uniqueId}`:`đang kết nối @${m.tiktok?.uniqueId||liveTikTokId}…`; break;
       case 'tiktok':
-        st.textContent=m.status==='connected'?`LIVE @${m.uniqueId}`:m.status==='connecting'?`đang kết nối @${m.uniqueId}…`:m.status==='error'?`TikTok lỗi: ${m.error||'không kết nối được'}`:m.status==='disconnected'?'TikTok LIVE đã ngắt kết nối':'đang kết nối TikTok LIVE…'; break;
-      case 'webError': st.textContent=m.message||'Không kết nối được TikTok LIVE'; break;
+        st.textContent=m.status==='connected'?`đang xem LIVE @${m.uniqueId}`:m.status==='connecting'?`đang kết nối @${m.uniqueId}…`:m.status==='error'?`@${m.uniqueId||liveTikTokId}: ${m.error||'không kết nối được'}`:m.status==='disconnected'?`@${m.uniqueId||liveTikTokId}: LIVE đã ngắt`:`đang kết nối @${liveTikTokId}…`; break;
+      case 'webError': st.textContent=`@${liveTikTokId}: ${m.message||'không kết nối được'}`; break;
       case 'settings': Object.assign(settings,m.settings); applySettings(); if (m.cap!==cap){ layout(m.cap); updateCount(); } break;
       case 'join': if (m.cap!==cap) layout(m.cap); addVisitor(m.v, m.v.demo && visitors.size>8); updateCount(); break;
       case 'leave': removeVisitor(m.id); updateCount(); renderMerit(); break;
